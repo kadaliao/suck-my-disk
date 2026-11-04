@@ -260,8 +260,9 @@ case "scan":
     print(L("\(fmtCount(s.files)) 个文件 · \(fmtCount(s.dirs)) 个目录 · \(String(format: "%.1f", s.scan_seconds)) 秒 · \(s.threads) 线程 · \(s.denied_dirs) 个目录无权限",
             "\(fmtCount(s.files)) files · \(fmtCount(s.dirs)) folders · \(String(format: "%.1f", s.scan_seconds))s · \(s.threads) threads · \(s.denied_dirs) unreadable"))
     if args.positional.isEmpty {
-        print(L("磁盘已用 \(Text.bytes(volume.used))，扫描不到 \(Text.bytes(volume.used > tree.uniqueTotal ? volume.used - tree.uniqueTotal : 0))（快照、系统文件、无权限目录）",
-                "Volume used \(Text.bytes(volume.used)); \(Text.bytes(volume.used > tree.uniqueTotal ? volume.used - tree.uniqueTotal : 0)) not visible (snapshots, system, unreadable)"))
+        let hidden = volume.dataUsed > tree.uniqueTotal ? volume.dataUsed - tree.uniqueTotal : 0
+        print(L("数据卷已用 \(Text.bytes(volume.dataUsed))，扫描不到 \(Text.bytes(hidden))（快照、无权限目录）；系统卷和虚拟内存另占 \(Text.bytes(volume.otherVolumes))",
+                "Data volume used \(Text.bytes(volume.dataUsed)); \(Text.bytes(hidden)) not visible (snapshots, unreadable); system & VM volumes use \(Text.bytes(volume.otherVolumes))"))
     }
 
 case "top":
