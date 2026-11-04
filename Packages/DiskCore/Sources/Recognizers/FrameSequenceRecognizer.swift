@@ -46,8 +46,8 @@ public enum FrameSequenceRecognizer {
                     id: "frames:" + path, label: L("渲染帧 \(seq.count) 张", "\(seq.count) rendered frames"), path: path,
                     bytes: bytes, estimate: tree.node(i).pointee.t_alloc, tier: .regenerable, action: .delete(path: path),
                     restore: L("用原工程重新渲染", "re-render from the source project"),
-                    reason: L("成片已存在：\(Text.home(match))（帧数与时长 × 帧率吻合）",
-                              "final video exists: \(Text.home(match)) (frame count matches duration × fps)"),
+                    reason: L("成片已存在：\(Fmt.home(match))（帧数与时长 × 帧率吻合）",
+                              "final video exists: \(Fmt.home(match)) (frame count matches duration × fps)"),
                     preselected: !recent)
                 if recent { item.warnings.append(L("7 天内刚渲染过", "rendered in the last 7 days")) }
             } else {

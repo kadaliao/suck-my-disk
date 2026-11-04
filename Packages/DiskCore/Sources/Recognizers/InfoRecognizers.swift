@@ -38,7 +38,7 @@ public enum ModelRecognizer {
                         id: "ollama:" + name, label: name, path: nil, bytes: size, tier: .regenerable,
                         action: .command(argv: ["ollama", "rm", name], cwd: nil),
                         restore: "ollama pull \(name)",
-                        reason: L("下载于 \(Text.ago(pulled))，可以重新 pull", "pulled \(Text.ago(pulled)), can be pulled again"),
+                        reason: L("下载于 \(Fmt.ago(pulled))，可以重新 pull", "pulled \(Fmt.ago(pulled)), can be pulled again"),
                         preselected: false))
                 }
             }
@@ -64,7 +64,7 @@ public enum ModelRecognizer {
                         ? .command(argv: ["hf", "cache", "rm", label, "-y"], cwd: nil) : .delete(path: path)
                     items.append(ReclaimItem(id: "\(id):" + label, label: label, path: path, bytes: tree.size(j),
                                              tier: .regenerable, action: action, restore: L("用到时会重新下载", "re-downloaded when used"),
-                                             reason: L("最后改动 \(Text.ago(tree.newest(j)))", "last changed \(Text.ago(tree.newest(j)))"),
+                                             reason: L("最后改动 \(Fmt.ago(tree.newest(j)))", "last changed \(Fmt.ago(tree.newest(j)))"),
                                              preselected: false))
                     return false
                 }
@@ -157,8 +157,8 @@ public enum SystemRecognizer {
         let hidden = volume.dataUsed > scanned ? volume.dataUsed - scanned : 0
         things.append(Thing(id: "system:hidden", kind: .system, title: L("数据卷里扫描不到的部分", "Not visible to the scan"), path: nil,
                             bytes: hidden,
-                            detail: L("数据卷已用 \(Text.bytes(volume.dataUsed)) − 扫描到 \(Text.bytes(scanned))：快照占用、没有权限读的目录（\(ctx.tree.stats.denied_dirs) 个）等。可清除空间约 \(Text.bytes(volume.purgeable))，macOS 需要时会自动释放。",
-                                      "data volume used \(Text.bytes(volume.dataUsed)) − scanned \(Text.bytes(scanned)): snapshot space, unreadable folders (\(ctx.tree.stats.denied_dirs)), etc. About \(Text.bytes(volume.purgeable)) is purgeable; macOS frees it when needed."),
+                            detail: L("数据卷已用 \(Fmt.bytes(volume.dataUsed)) − 扫描到 \(Fmt.bytes(scanned))：快照占用、没有权限读的目录（\(ctx.tree.stats.denied_dirs) 个）等。可清除空间约 \(Fmt.bytes(volume.purgeable))，macOS 需要时会自动释放。",
+                                      "data volume used \(Fmt.bytes(volume.dataUsed)) − scanned \(Fmt.bytes(scanned)): snapshot space, unreadable folders (\(ctx.tree.stats.denied_dirs)), etc. About \(Fmt.bytes(volume.purgeable)) is purgeable; macOS frees it when needed."),
                             items: []))
         if volume.otherVolumes > 0 {
             things.append(Thing(id: "system:volumes", kind: .system, title: L("系统卷和虚拟内存", "System, VM and other volumes"), path: nil,

@@ -2,10 +2,10 @@ import Foundation
 
 /// Bilingual text: picks Chinese when the user's first preferred language is Chinese.
 public func L(_ zh: String, _ en: String) -> String {
-    Text.isChinese ? zh : en
+    Fmt.isChinese ? zh : en
 }
 
-public enum Text {
+public enum Fmt {
     public static let isChinese: Bool = {
         if let forced = ProcessInfo.processInfo.environment["SMD_LANG"] {
             return forced.hasPrefix("zh")

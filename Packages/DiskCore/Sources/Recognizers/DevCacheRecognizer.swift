@@ -110,8 +110,8 @@ public enum DevCacheRecognizer {
             preselected: false)
         clean.covers = ["uv:prune"]
         if let c = cacheOnly, c.trapped > 0 {
-            clean.warnings.append(L("其中 \(Text.bytes(c.trapped)) 被现有 .venv 克隆引用，单清缓存腾不出来",
-                                    "\(Text.bytes(c.trapped)) is cloned into existing venvs and stays until they go too"))
+            clean.warnings.append(L("其中 \(Fmt.bytes(c.trapped)) 被现有 .venv 克隆引用，单清缓存腾不出来",
+                                    "\(Fmt.bytes(c.trapped)) is cloned into existing venvs and stays until they go too"))
         }
         items.append(prune)
         items.append(clean)
@@ -131,14 +131,14 @@ public enum DevCacheRecognizer {
                 preselected: combo.total > (cacheOnly?.total ?? 0) + venvOwn + 1_000_000_000)
             it.covers = ["uv:prune", "uv:clean"] + sleepingVenvs.map(\.itemID)
             if combo.trapped > 0 {
-                it.warnings.append(L("仍有 \(Text.bytes(combo.trapped)) 被活跃项目的 .venv 引用", "\(Text.bytes(combo.trapped)) stays referenced by active venvs"))
+                it.warnings.append(L("仍有 \(Fmt.bytes(combo.trapped)) 被活跃项目的 .venv 引用", "\(Fmt.bytes(combo.trapped)) stays referenced by active venvs"))
             }
             items.append(it)
             if it.preselected { items[0].preselected = false }
         }
         let detail = cacheOnly.map {
-            L("单清缓存实际腾出 \(Text.bytes($0.total))；\(Text.bytes($0.trapped)) 与 .venv 共享",
-              "clearing alone frees \(Text.bytes($0.total)); \(Text.bytes($0.trapped)) is shared with venvs")
+            L("单清缓存实际腾出 \(Fmt.bytes($0.total))；\(Fmt.bytes($0.trapped)) 与 .venv 共享",
+              "clearing alone frees \(Fmt.bytes($0.total)); \(Fmt.bytes($0.trapped)) is shared with venvs")
         }
         return Thing(id: "cache:uv", kind: .devCache, title: "uv cache", path: dir, bytes: bytes, detail: detail, items: items)
     }
@@ -213,7 +213,7 @@ public enum DevCacheRecognizer {
                 path: path, bytes: bytes, tier: .regenerable, action: .delete(path: path),
                 restore: L("Xcode 下次编译时重建", "rebuilt by Xcode on the next build"),
                 reason: gone ? L("对应的工程已经不在了", "its project no longer exists")
-                             : L("Xcode 编译缓存，\(Text.ago(ctx.tree.newest(c)))用过", "Xcode build cache, last used \(Text.ago(ctx.tree.newest(c)))"),
+                             : L("Xcode 编译缓存，\(Fmt.ago(ctx.tree.newest(c)))用过", "Xcode build cache, last used \(Fmt.ago(ctx.tree.newest(c)))"),
                 preselected: gone || days >= ctx.sleepAfterDays))
         }
         guard !items.isEmpty else { return nil }

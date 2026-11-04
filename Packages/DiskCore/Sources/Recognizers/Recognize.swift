@@ -51,10 +51,10 @@ public enum Recognize {
                 things[t].items[i].estimate = f.total
                 things[t].items[i].estimateIsLowerBound = false
                 if f.total < 1_000_000 { things[t].items[i].preselected = false }
-                if f.trapped > 0 {
+                if f.trapped >= 10_000_000 {
                     things[t].items[i].warnings.append(L(
-                        "其中 \(Text.bytes(f.trapped)) 和别处共享（克隆或硬链接），单删这一项腾不出来",
-                        "\(Text.bytes(f.trapped)) is shared with other places and stays allocated"))
+                        "其中 \(Fmt.bytes(f.trapped)) 和别处共享（克隆或硬链接），单删这一项腾不出来",
+                        "\(Fmt.bytes(f.trapped)) is shared with other places and stays allocated"))
                 }
             }
         }

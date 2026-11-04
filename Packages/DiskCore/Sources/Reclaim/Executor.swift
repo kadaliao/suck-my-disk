@@ -54,7 +54,7 @@ public final class Executor {
     func runOne(_ item: ReclaimItem) -> Outcome {
         for p in Self.paths(item.action) {
             if let why = check(p) {
-                return finish(item, .skipped, 0, "\(Text.home(p)): \(why)", before: 0, after: 0)
+                return finish(item, .skipped, 0, "\(Fmt.home(p)): \(why)", before: 0, after: 0)
             }
         }
         var detail: [String] = []
@@ -73,7 +73,7 @@ public final class Executor {
     func perform(_ a: ReclaimAction) -> String? {
         switch a {
         case .delete(let p):
-            log("  rm  " + Text.home(p))
+            log("  rm  " + Fmt.home(p))
             let rc = removefile(p, nil, removefile_flags_t(REMOVEFILE_RECURSIVE))
             return rc == 0 ? nil : "removefile: \(String(cString: strerror(errno)))"
         case .deleteAll(let ps):
@@ -82,7 +82,7 @@ public final class Executor {
             }
             return nil
         case .trash(let p):
-            log("  trash  " + Text.home(p))
+            log("  trash  " + Fmt.home(p))
             do {
                 try FileManager.default.trashItem(at: URL(fileURLWithPath: p), resultingItemURL: nil)
                 return nil

@@ -9,10 +9,7 @@ let package = Package(
         .executable(name: "smd", targets: ["smd"]),
     ],
     targets: [
-        .target(
-            name: "CFastScan",
-            cSettings: [.unsafeFlags(["-O3"])]
-        ),
+        .target(name: "CFastScan"),
         .target(name: "DiskIndex", dependencies: ["CFastScan"], linkerSettings: [.linkedLibrary("sqlite3")]),
         .target(name: "Insights", dependencies: ["DiskIndex"]),
         .target(name: "Recognizers", dependencies: ["DiskIndex", "Insights"]),
