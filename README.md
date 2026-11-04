@@ -7,9 +7,24 @@ Instead of listing folders, it recognizes *things* — projects, render frames,
 dev caches, models, app data, system space — and for each one says how much
 space it really uses, what can be rebuilt, and how to get it back.
 
-## Status
+## Install
 
-M1: command-line core (`smd`). The macOS app comes next.
+Requires macOS 26. Download `SuckMyDisk-<version>.zip` from Releases, unzip,
+and move `SuckMyDisk.app` to `/Applications`. Builds are signed with a
+Developer ID and notarized.
+
+For complete numbers, grant Full Disk Access (System Settings → Privacy &
+Security → Full Disk Access). Without it, app containers such as WeChat's are
+not counted.
+
+The app has five places to reclaim space (projects, render frames, dev caches,
+models, app data), a whole-disk treemap, a growth timeline, and a menu bar item
+that shows free space. The UI follows the system language (Chinese or English).
+
+## Command line
+
+`smd` uses the same engine and the same index as the app. It is in
+`smd-<version>-macos.zip` on the Releases page, or build it yourself:
 
 ```sh
 cd Packages/DiskCore
@@ -20,6 +35,17 @@ swift build -c release
 ```
 
 `SMD_LANG=zh` forces Chinese output; otherwise it follows the system language.
+
+## Build the app
+
+```sh
+brew install xcodegen
+xcodegen generate
+open SuckMyDisk.xcodeproj
+```
+
+`scripts/release.sh` builds, signs, notarizes (with `NOTARY_PROFILE` set) and
+zips a release into `build/release/`.
 
 ## How it stays safe
 
@@ -38,6 +64,8 @@ swift build -c release
 ## Layout
 
 ```
+App/                   SwiftUI app and menu bar item
+scripts/release.sh     signed, notarized release build
 Packages/DiskCore/
   Sources/CFastScan    parallel getattrlistbulk walker (C)
   Sources/DiskIndex    tree, snapshot, firmlinks, shared-data accounting, SQLite

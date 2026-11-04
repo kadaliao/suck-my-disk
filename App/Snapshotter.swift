@@ -21,7 +21,8 @@ enum Snapshotter {
             model.confirming = true
             try? await Task.sleep(for: .milliseconds(900))
             capture(to: dir.appendingPathComponent("9-clean-sheet.png"), sheet: true)
-            NSApp.terminate(nil)
+            model.confirming = false
+            exit(0)
         }
     }
 
