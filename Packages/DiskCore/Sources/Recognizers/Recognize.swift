@@ -16,11 +16,14 @@ public struct Report: Codable, Sendable {
 
 /// Runs every recognizer over a tree.
 public enum Recognize {
-    public static func all(tree: ScanTree, sleepAfterDays: Int = 30, log: @escaping (String) -> Void = { _ in }) async -> Report {
+    /// `skip`: data-volume folders whose files must not be read (they would raise a privacy prompt).
+    public static func all(tree: ScanTree, sleepAfterDays: Int = 30, skip: [String] = [],
+                           log: @escaping (String) -> Void = { _ in }) async -> Report {
         let volume = VolumeInfo.of()
         log(L("读取活跃度信号（Claude Code、Codex、shell 历史）…", "Reading activity signals (Claude Code, Codex, shell history)…"))
         let activity = ActivityIndex()
-        let ctx = RecognizeContext(tree: tree, activity: activity, sleepAfterDays: sleepAfterDays)
+        var ctx = RecognizeContext(tree: tree, activity: activity, sleepAfterDays: sleepAfterDays)
+        ctx.offLimits = skip.map(Firmlinks.userPath)
         log(L("识别项目…", "Finding projects…"))
         let (projects, venvs) = ProjectRecognizer.recognize(ctx)
         let preVenvs = Set(projects.flatMap(\.items).filter { $0.preselected && $0.label == "venv" }.map(\.id))
@@ -33,19 +36,19 @@ public enum Recognize {
         let system = SystemRecognizer.recognize(ctx, volume: volume)
         var all = projects + media + caches + models + apps + system
         log(L("精确计算含共享数据的大项…", "Measuring items that share data…"))
-        refineShared(&all)
+        refineShared(&all, offLimits: ctx.offLimits)
         return Report(createdAt: Date(), volumeTotal: volume.total, volumeFree: volume.free,
                       scanned: tree.uniqueTotal, things: all)
     }
 
     /// Items whose data is partly shared (clones / hard links) get an exact
     /// "what deleting this alone frees" by scanning just that item.
-    static func refineShared(_ things: inout [Thing]) {
+    static func refineShared(_ things: inout [Thing], offLimits: [String] = []) {
         for t in things.indices {
             for i in things[t].items.indices {
                 let item = things[t].items[i]
                 guard item.estimateIsLowerBound, case .delete(let path) = item.action,
-                      item.bytes > item.estimate + 50_000_000,
+                      item.bytes > item.estimate + 50_000_000, !Privacy.isInside(path, offLimits),
                       let acct = SharedAccounting(roots: [path]) else { continue }
                 let f = acct.freed(deleting: [0])
                 things[t].items[i].estimate = f.total

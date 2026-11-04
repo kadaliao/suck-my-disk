@@ -148,8 +148,7 @@ struct ThingRow: View {
             Image(systemName: "lightbulb").foregroundStyle(.teal).frame(width: 18)
         } else {
             Button {
-                if n == selectable.count { selectable.forEach { model.selection.remove($0.id) } }
-                else { selectable.forEach { model.selection.insert($0.id) } }
+                model.setSelected(selectable.map(\.id), n != selectable.count)
             } label: {
                 Image(systemName: n == 0 ? "circle" : (n == selectable.count ? "checkmark.circle.fill" : "minus.circle.fill"))
                     .font(.title3)

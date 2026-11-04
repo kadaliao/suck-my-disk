@@ -27,9 +27,9 @@ public enum ReportStore {
         try t.save(to: indexURL)
     }
 
-    /// After deleting things the index and report no longer match the disk.
+    /// After deleting things the report no longer matches the disk. The index stays:
+    /// it catches up from FSEvents.
     public static func invalidate() {
-        try? FileManager.default.removeItem(at: indexURL)
         try? FileManager.default.removeItem(at: reportURL)
     }
 

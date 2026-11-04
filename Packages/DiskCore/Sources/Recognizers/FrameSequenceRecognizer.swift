@@ -24,7 +24,7 @@ public enum FrameSequenceRecognizer {
         let n = tree.count
         for i in 1..<UInt32(n) {
             let x = tree.node(i).pointee
-            guard x.flags & SM_F_DIR != 0, x.flags & (SM_F_COLLAPSED | SM_F_PACKAGE) == 0,
+            guard x.flags & SM_F_DIR != 0, x.flags & (SM_F_COLLAPSED | SM_F_PACKAGE | SM_F_DETACHED) == 0,
                   x.img_count >= 300, x.img_bytes >= 50_000_000 else { continue }
             candidates.append(i)
         }
@@ -34,7 +34,7 @@ public enum FrameSequenceRecognizer {
         var durations: [String: Double?] = [:]
         for i in candidates {
             let path = tree.path(i)
-            if Guards.isDenied(path) { continue }
+            if Guards.isDenied(path) || ctx.isOffLimits(path) { continue }
             guard let seq = inspect(path) else { continue }
             let scope = scopeDir(tree, i)
             let match = await nearestFinal(tree, frames: i, seq, stopAt: scope.node, cache: &durations)

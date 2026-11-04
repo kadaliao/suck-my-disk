@@ -9,7 +9,20 @@ public struct ScanOptions: Sendable {
     public var wantPrivate = false
     public var collectShared = false
     public var noCollapse = false
+    /// Worker threads run at utility QoS (live updates).
+    public var background = false
+    /// If set, roots on another device become mount-point nodes instead of being scanned.
+    public var rootDevice: UInt32 = 0
+    /// Folders never opened (recorded as unreadable): see `Privacy`.
+    public var skip: [String] = []
     public init() {}
+
+    /// Default options that leave privacy-prompting folders alone without Full Disk Access.
+    public static func respectingPrivacy() -> ScanOptions {
+        var o = ScanOptions()
+        o.skip = Privacy.rootsToSkip()
+        return o
+    }
 }
 
 public struct ScanProgress: Sendable {
@@ -87,6 +100,8 @@ public final class ScanTree: @unchecked Sendable {
     }
 
     public func isDir(_ i: NodeID) -> Bool { node(i).pointee.flags & UInt32(SM_F_DIR) != 0 }
+    /// Removed by a live update; such nodes are unreachable but keep their index.
+    public func isDetached(_ i: NodeID) -> Bool { node(i).pointee.flags & SM_F_DETACHED != 0 }
     public func has(_ i: NodeID, flag: UInt32) -> Bool { node(i).pointee.flags & flag != 0 }
     public func has(_ i: NodeID, marker: UInt32) -> Bool { node(i).pointee.markers & marker != 0 }
 
@@ -101,27 +116,53 @@ public final class ScanTree: @unchecked Sendable {
     /// Finds the node for an absolute path, if the path lies inside a scan root.
     public func find(_ path: String) -> NodeID? {
         let std = (path as NSString).standardizingPath
-        if let hit = findRaw(std) { return hit }
+        if let hit = nearest(std), hit.exact { return hit.node }
         let data = Firmlinks.dataPath(std)
-        return data == std ? nil : findRaw(data)
+        guard data != std, let hit = nearest(data), hit.exact else { return nil }
+        return hit.node
     }
 
-    private func findRaw(_ target: String) -> NodeID? {
-        for r in children(Self.root) {
-            let rp = name(r)
-            if target == rp { return r }
-            let prefix = rp.hasSuffix("/") ? rp : rp + "/"
-            guard target.hasPrefix(prefix) else { continue }
-            var cur = r
-            for comp in target.dropFirst(prefix.count).split(separator: "/") {
-                let want = String(comp)
-                guard let next = children(cur).first(where: { name($0) == want }) else { return nil }
-                cur = next
-            }
-            return cur
+    /// The deepest node on a raw (data-volume) path, and whether it is the path itself.
+    public func nearest(_ rawPath: String) -> (node: NodeID, exact: Bool)? {
+        var exact = false
+        var p = rawPath
+        let n = p.withUTF8 { b in
+            b.withMemoryRebound(to: CChar.self) { sm_tree_find(raw, $0.baseAddress, b.count, &exact) }
         }
-        return nil
+        return n == SM_NONE ? nil : (n, exact)
     }
+
+    public func depth(_ i: NodeID) -> Int {
+        var d = 0
+        var cur = i
+        while let p = parent(cur) { d += 1; cur = p }
+        return d
+    }
+
+    // MARK: live-update state
+
+    /// The FSEvents id this tree is current up to (0: unknown, e.g. an older index).
+    public var eventID: UInt64 { stats.event_id }
+
+    public var eventsUUID: UUID? {
+        var s = stats
+        let u = withUnsafeBytes(of: &s.events_uuid) { UUID(uuid: $0.load(as: uuid_t.self)) }
+        return u == UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)) ? nil : u
+    }
+
+    public func setEvents(id: UInt64, uuid: UUID?) {
+        var bytes = (uuid ?? UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))).uuid
+        withUnsafeBytes(of: &bytes) { sm_tree_set_events(raw, id, $0.bindMemory(to: UInt8.self).baseAddress) }
+    }
+
+    /// Records that the tree matches the disk as of now.
+    public func touch() { sm_tree_touch(raw) }
+
+    /// Nodes left unreachable by live updates (dropped when the tree is saved).
+    public var detachedCount: UInt64 { stats.detached }
+
+    /// When the tree last matched the disk.
+    public var updatedAt: Date { Date(timeIntervalSince1970: stats.created_at) }
 
     /// Depth-first walk. Return false from the visitor to skip a node's children.
     public func walk(from start: NodeID, _ visit: (NodeID) -> Bool) {
@@ -164,8 +205,9 @@ public final class ScanTree: @unchecked Sendable {
     // MARK: scanning
 
     /// Blocking scan. `progress` is called roughly every 100 ms from a helper thread.
+    /// `rootFlags[i]` may hold SM_F_COLLAPSED / SM_F_PACKAGE to scan that root folded.
     public static func scan(
-        roots: [String], options: ScanOptions = ScanOptions(),
+        roots: [String], rootFlags: [UInt32]? = nil, options: ScanOptions = ScanOptions(),
         progress: (@Sendable (ScanProgress) -> Void)? = nil
     ) -> ScanTree? {
         var o = sm_scan_opts()
@@ -174,6 +216,23 @@ public final class ScanTree: @unchecked Sendable {
         o.want_private = options.wantPrivate
         o.collect_shared = options.collectShared
         o.no_collapse = options.noCollapse
+        o.background = options.background
+        o.root_dev = options.rootDevice
+        let skip = options.skip.map { strdup($0) }
+        defer { skip.forEach { free($0) } }
+        let skipPtrs: [UnsafePointer<CChar>?] = skip.map { UnsafePointer($0) }
+        return skipPtrs.withUnsafeBufferPointer { sp in
+            o.skip = sp.isEmpty ? nil : sp.baseAddress
+            o.nskip = Int32(sp.count)
+            return run(o, roots: roots, rootFlags: rootFlags, progress: progress)
+        }
+    }
+
+    private static func run(
+        _ opts: sm_scan_opts, roots: [String], rootFlags: [UInt32]?,
+        progress: (@Sendable (ScanProgress) -> Void)?
+    ) -> ScanTree? {
+        var o = opts
         guard let scanner = sm_scanner_create(&o) else { return nil }
         defer { sm_scanner_free(scanner) }
 
@@ -194,7 +253,13 @@ public final class ScanTree: @unchecked Sendable {
         let cstrs = roots.map { strdup($0) }
         defer { cstrs.forEach { free($0) } }
         let ptrs: [UnsafePointer<CChar>?] = cstrs.map { UnsafePointer($0) }
-        let tree = ptrs.withUnsafeBufferPointer { sm_scanner_run(scanner, $0.baseAddress, Int32(roots.count)) }
+        let tree = ptrs.withUnsafeBufferPointer { p in
+            if let rootFlags {
+                rootFlags.withUnsafeBufferPointer { sm_scanner_run_ex(scanner, p.baseAddress, $0.baseAddress, Int32(roots.count)) }
+            } else {
+                sm_scanner_run(scanner, p.baseAddress, Int32(roots.count))
+            }
+        }
         done.value = true
         return tree.map { ScanTree(raw: $0) }
     }

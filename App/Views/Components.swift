@@ -166,12 +166,13 @@ struct FirstScanView: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            Image(systemName: "internaldrive")
-                .font(.system(size: 54, weight: .light))
-                .foregroundStyle(.secondary)
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 112, height: 112)
             Text(L("第一次需要扫描整块磁盘", "The first run scans the whole disk"))
                 .font(.title2.weight(.semibold))
-            Text(L("大约一分钟。之后打开就是现成的结果。", "About a minute. After that, results are ready when you open the app."))
+            Text(L("大约一分钟。之后它跟着磁盘实时更新，打开就是最新结果。",
+                   "About a minute. After that it follows the disk live, so results are current whenever you open it."))
                 .foregroundStyle(.secondary)
             if case .scanning(let files, let bytes) = model.phase {
                 VStack(spacing: 6) {
@@ -308,13 +309,55 @@ struct ResultSheet: View {
     }
 }
 
+/// Shows whether numbers follow the disk live.
+struct LiveBadge: View {
+    @Environment(AppModel.self) private var model
+    var compact = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            switch model.liveState {
+            case .live:
+                Circle().fill(.green).frame(width: 7, height: 7)
+                    .shadow(color: .green.opacity(0.6), radius: 3)
+                Text(L("实时", "Live"))
+            case .catchingUp:
+                ProgressView().controlSize(.mini)
+                Text(L("正在追上离开期间的改动…", "Catching up on changes…"))
+            case .off:
+                Circle().fill(.secondary.opacity(0.5)).frame(width: 7, height: 7)
+                Text(L("未在跟踪", "Not following"))
+            }
+            if compact {
+                EmptyView()
+            } else if model.refreshing {
+                Text("·")
+                ProgressView().controlSize(.mini)
+                Text(L("重新识别中", "re-recognizing"))
+            } else if let r = model.report, model.liveState != .catchingUp {
+                Text("·")
+                Text(L("识别于 ", "recognized ") + r.createdAt.formatted(
+                    .relative(presentation: .named).locale(Locale(identifier: Fmt.isChinese ? "zh_Hans" : "en"))))
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .help(L("文件一变，这里的数字几秒内跟着变；识别（项目、缓存等）在后台按需重跑。",
+                "Numbers follow file changes within seconds; recognition (projects, caches…) reruns in the background when needed."))
+    }
+}
+
 struct MenuBarPanel: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(L("可用空间", "Free space")).font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text(L("可用空间", "Free space")).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                LiveBadge(compact: true)
+            }
             BigNumber(bytes: model.volume.free, size: 34)
             CapacityBar(segments: model.segments, total: model.volume.total, height: 10)
             Divider()

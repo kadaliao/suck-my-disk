@@ -2,19 +2,42 @@ import DiskIndex
 import Recognizers
 import SwiftUI
 
+/// Starts the model at launch (the main window may not be open), and saves the
+/// index on quit so the next launch only replays what changed since.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    @MainActor static var model: AppModel?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            guard let model = Self.model else { return }
+            model.start()
+            Snapshotter.runIfRequested(model)
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { Self.model?.saveNow() }
+    }
+}
+
 @main
 struct SuckMyDiskApp: App {
-    @State private var model = AppModel()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @State private var model: AppModel
+
+    init() {
+        // Screenshot runs never read folders macOS would ask about.
+        if CommandLine.arguments.contains("--snapshot") { Privacy.alwaysSkip = true }
+        let m = AppModel()
+        _model = State(initialValue: m)
+        AppDelegate.model = m
+    }
 
     var body: some Scene {
         Window("SuckMyDisk", id: "main") {
             RootView()
                 .environment(model)
                 .frame(minWidth: 960, minHeight: 640)
-                .task {
-                    model.start()
-                    Snapshotter.runIfRequested(model)
-                }
         }
         .defaultSize(width: 1180, height: 760)
         .windowToolbarStyle(.unified)

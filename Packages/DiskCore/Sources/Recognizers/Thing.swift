@@ -120,6 +120,10 @@ public struct RecognizeContext: @unchecked Sendable {
     public let home = NSHomeDirectory()
     /// Tests use fixtures outside the home folder.
     public var allowAnyPath = false
+    /// Folders recognizers must not read files in (user-visible paths): see `Privacy`.
+    public var offLimits: [String] = []
+
+    public func isOffLimits(_ path: String) -> Bool { Privacy.isInside(path, offLimits) }
 
     public init(tree: ScanTree, activity: ActivityIndex, now: Date = Date(), sleepAfterDays: Int = 30) {
         self.tree = tree

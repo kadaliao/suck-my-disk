@@ -1,6 +1,7 @@
 import DiskIndex
 import Foundation
 import Observation
+import OSLog
 import Recognizers
 import Reclaim
 import SwiftUI
@@ -64,6 +65,14 @@ enum Phase: Equatable {
     case cleaning(current: String, done: Int, total: Int)
 }
 
+/// Whether the index follows the disk.
+enum LiveState: Equatable {
+    case off
+    /// Replaying what changed while the app was not running.
+    case catchingUp
+    case live
+}
+
 struct CleanResult: Identifiable {
     let id = UUID()
     var done: Int
@@ -72,10 +81,15 @@ struct CleanResult: Identifiable {
     var freed: UInt64
 }
 
+private let log = Logger(subsystem: "com.kadaliao.SuckMyDisk", category: "live")
+
 @MainActor @Observable
 final class AppModel {
+    /// What the recognizers found, adjusted to the current index (see `refreshDerived`).
     var report: Report?
     var tree: ScanTree?
+    /// Bumped whenever the index changes in place.
+    var treeRevision = 0
     var volume = VolumeInfo.of()
     var selection: Set<String> = []
     var phase: Phase = .idle
@@ -87,6 +101,33 @@ final class AppModel {
     var applications: UInt64 = 0
     var confirming = false
     var scanStarted: Date?
+
+    var liveState: LiveState = .off
+    /// Without it, folders macOS guards with a consent dialog are left alone.
+    var hasFullDiskAccess = Privacy.hasFullDiskAccess
+    /// Recognizers are running in the background.
+    var refreshing = false
+    /// When the index last changed because files changed.
+    var lastChange: Date?
+
+    /// The last recognition result, as it was; `report` is derived from it.
+    @ObservationIgnored private var baseReport: Report?
+    /// Index sizes of each item / thing path when `baseReport` was made.
+    @ObservationIgnored private var baseline: [String: UInt64] = [:]
+    /// Boxes the user ticked or unticked themselves; kept across refreshes.
+    @ObservationIgnored private var userOn: Set<String> = []
+    @ObservationIgnored private var userOff: Set<String> = []
+    @ObservationIgnored private var cleaned: (at: Date, ids: Set<String>)?
+
+    @ObservationIgnored private var live: LiveIndex?
+    @ObservationIgnored private var liveTask: Task<Void, Never>?
+    @ObservationIgnored private var wake: AsyncStream<Void>.Continuation?
+    @ObservationIgnored private var lastSave = Date()
+    @ObservationIgnored private var dirty = false
+    @ObservationIgnored private var changedSinceRecognition: UInt64 = 0
+    /// Size changes not shown yet: the UI redraws for a megabyte or more, or every 15 s.
+    @ObservationIgnored private var unshownDelta: Int64 = 0
+    @ObservationIgnored private var lastRedraw = Date()
 
     var things: [Thing] { report?.things ?? [] }
 
@@ -114,24 +155,19 @@ final class AppModel {
             let (report, tree) = await Task.detached(priority: .userInitiated) {
                 (ReportStore.load(), ReportStore.loadIndex())
             }.value
-            self.tree = tree
             self.history = ReportStore.history()
-            if let report {
-                self.report = report
-                apply(report)
-                phase = .idle
-                if tree == nil { await rescan() }
-            } else {
+            guard let tree, LiveIndex.canResume(tree) else {
+                log.notice("no resumable index (index: \(tree != nil, privacy: .public)); full scan")
+                if let report { setReport(report, tree: nil) }
                 await rescan()
+                return
             }
+            self.tree = tree
+            if let report { setReport(report, tree: tree) }
+            phase = .idle
+            // Catch up on what changed while the app was closed; the loop recognizes afterwards.
+            startLive(since: tree.eventID)
         }
-    }
-
-    private func apply(_ r: Report) {
-        report = r
-        selection = Set(r.things.flatMap(\.items).filter(\.preselected).map(\.id))
-        volume = VolumeInfo.of()
-        measureFolders()
     }
 
     func measureFolders() {
@@ -155,6 +191,7 @@ final class AppModel {
     }
 
     func rescan() async {
+        await stopLive()
         scanStarted = Date()
         phase = .scanning(files: 0, bytes: 0)
         let progress = ProgressRelay()
@@ -164,14 +201,31 @@ final class AppModel {
                 try? await Task.sleep(for: .milliseconds(120))
             }
         }
+        // Changes made while scanning are replayed from here afterwards.
+        let startID = DiskWatcher.currentEventID
         let tree = await Task.detached(priority: .userInitiated) {
-            ScanTree.scan(roots: [Firmlinks.dataRoot]) { progress.value = $0 }
+            ScanTree.scan(roots: [Firmlinks.dataRoot], options: .respectingPrivacy()) { progress.value = $0 }
         }.value
         poll.cancel()
         guard let tree else { phase = .idle; return }
-        try? ReportStore.saveIndex(tree)
+        LiveIndex.stamp(tree, startedAt: startID)
+        await Task.detached(priority: .utility) { try? ReportStore.saveIndex(tree) }.value
+        lastSave = Date()
         self.tree = tree
-        phase = .recognizing(L("正在识别项目、渲染帧和缓存…", "Recognizing projects, frames and caches…"))
+        treeRevision += 1
+        await recognize(background: false)
+        startLive(since: startID)
+    }
+
+    /// Runs the recognizers over the current index. Callers make sure nothing changes the tree meanwhile.
+    private func recognize(background: Bool) async {
+        guard let tree else { return }
+        let started = Date()
+        if background {
+            refreshing = true
+        } else {
+            phase = .recognizing(L("正在识别项目、渲染帧和缓存…", "Recognizing projects, frames and caches…"))
+        }
         let relay = LogRelay()
         let logPoll = Task { @MainActor in
             while !Task.isCancelled {
@@ -179,19 +233,234 @@ final class AppModel {
                 try? await Task.sleep(for: .milliseconds(150))
             }
         }
-        let report = await Recognize.all(tree: tree) { relay.value = $0 }
+        var report = await Recognize.all(tree: tree, skip: Privacy.rootsToSkip()) { relay.value = $0 }
         logPoll.cancel()
-        ReportStore.save(report)
-        ReportStore.writeHistory(report)
-        apply(report)
+        // Items cleaned while this ran are gone, whatever the older index said.
+        if let c = cleaned, c.at > started {
+            for t in report.things.indices { report.things[t].items.removeAll { c.ids.contains($0.id) } }
+        }
+        let saved = report
+        await Task.detached(priority: .utility) {
+            ReportStore.save(saved)
+            ReportStore.writeHistory(saved)
+        }.value
+        setReport(report, tree: tree)
         history = ReportStore.history()
-        phase = .idle
+        changedSinceRecognition = 0
+        if background { refreshing = false } else { phase = .idle }
+    }
+
+    /// Takes a fresh recognition result and remembers the index sizes it was based on.
+    private func setReport(_ r: Report, tree: ScanTree?) {
+        baseReport = r
+        baseline = [:]
+        if let tree {
+            for t in r.things {
+                if let p = t.path, let n = tree.find(p) { baseline[t.id] = tree.size(n) }
+                for i in t.items { if let p = i.path, let n = tree.find(p) { baseline[i.id] = tree.size(n) } }
+            }
+        }
+        refreshDerived()
+        let ids = Set(r.things.flatMap(\.items).map(\.id))
+        let pre = Set(r.things.flatMap(\.items).filter(\.preselected).map(\.id))
+        selection = pre.union(userOn).subtracting(userOff).intersection(ids)
+    }
+
+    /// Brings sizes up to date from the index without running the recognizers:
+    /// things that are gone disappear, things that grew or shrank show it.
+    private func refreshDerived() {
+        guard var r = baseReport else { report = nil; return }
+        if let tree {
+            r.things = r.things.compactMap { t in
+                var t = t
+                let hadItems = !t.items.isEmpty
+                t.items = t.items.compactMap { item in
+                    guard let p = item.path else { return item }
+                    guard let n = tree.find(p) else { return nil }
+                    guard let old = baseline[item.id], old > 0 else { return item }
+                    let now = tree.size(n)
+                    guard now != old else { return item }
+                    var i = item
+                    i.bytes = now
+                    i.estimate = min(now, UInt64(Double(item.estimate) * Double(now) / Double(old)))
+                    return i
+                }
+                if hadItems, t.items.isEmpty, t.kind != .system, t.kind != .appData { return nil }
+                if let p = t.path, let old = baseline[t.id] {
+                    guard let n = tree.find(p) else { return t.kind == .system || t.kind == .appData ? t : nil }
+                    let now = tree.size(n)
+                    t.bytes = now >= old ? t.bytes + (now - old) : t.bytes - min(t.bytes, old - now)
+                }
+                return t
+            }
+            r.scanned = tree.uniqueTotal
+        }
+        report = r
+        let ids = Set(r.things.flatMap(\.items).map(\.id))
+        if !selection.isSubset(of: ids) { selection.formIntersection(ids) }
+        measureFolders()
+    }
+
+    // MARK: live updates
+
+    private func startLive(since: UInt64) {
+        guard liveTask == nil, tree != nil else { return }
+        let live = LiveIndex(since: since)
+        live.skip = Privacy.rootsToSkip()
+        hasFullDiskAccess = Privacy.hasFullDiskAccess
+        let (stream, cont) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        live.watcher.onEvents = { cont.yield() }
+        guard live.watcher.start() else {
+            log.error("FSEvents stream did not start")
+            liveState = .off
+            return
+        }
+        log.notice("following the disk from event \(since, privacy: .public)")
+        self.live = live
+        wake = cont
+        cont.yield()
+        liveState = since == 0 ? .live : .catchingUp
+        liveTask = Task { [weak self] in
+            await self?.liveLoop(live, stream)
+        }
+    }
+
+    private func stopLive() async {
+        guard let task = liveTask else { return }
+        task.cancel()
+        wake?.finish()
+        await task.value
+        live?.watcher.stop()
+        live = nil
+        liveTask = nil
+        wake = nil
+        liveState = .off
+    }
+
+    private func liveLoop(_ live: LiveIndex, _ stream: AsyncStream<Void>) async {
+        // Wake up on events, and every half minute for put-off work and the volume numbers.
+        let ticker = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                wake?.yield()
+            }
+        }
+        defer { ticker.cancel() }
+        var first = true
+        for await _ in stream {
+            if Task.isCancelled { break }
+            // Let a burst of changes settle into one batch.
+            if !first { try? await Task.sleep(for: .milliseconds(1200)) }
+            first = false
+            guard !Task.isCancelled, let tree, tree === self.tree else { break }
+            await step(live, tree)
+        }
+    }
+
+    private func step(_ live: LiveIndex, _ tree: ScanTree) async {
+        let t0 = Date()
+        let plan = await Task.detached(priority: .utility) { live.prepare(tree, mode: .live) }.value
+        guard !Task.isCancelled, tree === self.tree else { return }
+        if let why = plan.rescanAll {
+            log.notice("full rescan: \(why, privacy: .public)")
+            Task { await rescan() }
+            return
+        }
+        let out = await Task.detached(priority: .utility) { live.perform(plan) }.value
+        guard !Task.isCancelled, tree === self.tree else { return }
+        if out.failed {
+            Task { await rescan() }
+            return
+        }
+        for x in out.slow {
+            log.notice("slow folder: \(Fmt.home(Firmlinks.userPath(x.path)), privacy: .public) took \(x.seconds, format: .fixed(precision: 1), privacy: .public) s")
+        }
+        let s = live.apply(tree, out)
+        if s.changed > 0 || !out.deferred.isEmpty {
+            log.info("batch: \(plan.count) read, \(s.changed) changed, \(out.deferred.count) put off, Δ \(s.delta) B, \(Int(Date().timeIntervalSince(t0) * 1000)) ms, \(live.staleCount) stale")
+        }
+        if s.changed > 0 { dirty = true }
+        if s.delta != 0 {
+            lastChange = Date()
+            changedSinceRecognition += s.delta.magnitude
+            unshownDelta += s.delta
+        }
+        // Background churn (logs, caches) moves sizes by kilobytes all the time; redraw only when it shows.
+        if unshownDelta.magnitude >= 1_000_000 || (unshownDelta != 0 && Date().timeIntervalSince(lastRedraw) > 15) {
+            unshownDelta = 0
+            lastRedraw = Date()
+            treeRevision += 1
+            refreshDerived()
+        }
+        // Access granted in System Settings: scan again to count what was left out.
+        if !hasFullDiskAccess, Privacy.hasFullDiskAccess {
+            hasFullDiskAccess = true
+            log.notice("Full Disk Access granted; rescanning")
+            Task { await rescan() }
+            return
+        }
+        let v = VolumeInfo.of()
+        if v.free.distance(to: volume.free).magnitude >= 10_000_000 || v.total != volume.total {
+            withAnimation(.spring(duration: 0.8)) { volume = v }
+        }
+        if liveState == .catchingUp, live.watcher.caughtUp, live.watcher.pendingCount == 0 {
+            liveState = .live
+            // Back after a while: recognize again with what changed meanwhile.
+            if let r = baseReport {
+                if Date().timeIntervalSince(r.createdAt) > 600 || changedSinceRecognition >= 50_000_000 {
+                    await recognize(background: true)
+                }
+            } else {
+                await recognize(background: false)
+            }
+        }
+        await maybeRecognize()
+        await maybeSave(tree)
+    }
+
+    /// Recognizers take seconds, so they run again only when enough has changed.
+    private func maybeRecognize() async {
+        guard liveState == .live, phase == .idle, let r = baseReport else { return }
+        let age = Date().timeIntervalSince(r.createdAt)
+        let quiet = lastChange.map { Date().timeIntervalSince($0) > 5 } ?? true
+        if (changedSinceRecognition >= 1_000_000_000 && age > 120 && quiet) ||
+            (changedSinceRecognition >= 50_000_000 && age > 1800) {
+            await recognize(background: true)
+        }
+    }
+
+    private func maybeSave(_ tree: ScanTree) async {
+        guard dirty, Date().timeIntervalSince(lastSave) > 600 else { return }
+        await Task.detached(priority: .utility) { try? ReportStore.saveIndex(tree) }.value
+        lastSave = Date()
+        dirty = false
+    }
+
+    /// Called when the app quits: the next launch catches up from here.
+    func saveNow() {
+        guard let tree, liveState != .off else { return }
+        try? ReportStore.saveIndex(tree)
+        dirty = false
     }
 
     // MARK: cleaning
 
     func toggle(_ item: ReclaimItem) {
-        if selection.contains(item.id) { selection.remove(item.id) } else { selection.insert(item.id) }
+        setSelected([item.id], !selection.contains(item.id))
+    }
+
+    func setSelected(_ ids: [String], _ on: Bool) {
+        for id in ids {
+            if on {
+                selection.insert(id)
+                userOn.insert(id)
+                userOff.remove(id)
+            } else {
+                selection.remove(id)
+                userOff.insert(id)
+                userOn.remove(id)
+            }
+        }
     }
 
     func clean() async {
@@ -215,19 +484,21 @@ final class AppModel {
             }
         }
         let after = VolumeInfo.freeBytes()
-        // Drop what is gone so the UI reflects it at once; the index is rebuilt on the next scan.
-        if var r = report {
+        // Drop what is gone at once; the index itself follows from FSEvents.
+        cleaned = (Date(), doneIDs)
+        if var r = baseReport {
             for t in r.things.indices { r.things[t].items.removeAll { doneIDs.contains($0.id) } }
             r.things.removeAll { $0.items.isEmpty && $0.kind != .system && $0.kind != .appData }
-            report = r
+            baseReport = r
             ReportStore.save(r)
+            refreshDerived()
         }
-        try? FileManager.default.removeItem(at: ReportStore.indexURL)
-        tree = nil
         selection.subtract(doneIDs)
+        userOn.subtract(doneIDs)
         withAnimation(.spring(duration: 0.8)) { volume = VolumeInfo.of() }
         lastResult = CleanResult(done: done, skipped: skipped, failed: failed, freed: after > before ? after - before : 0)
         phase = .idle
+        wake?.yield()
     }
 }
 

@@ -24,6 +24,8 @@
 #define SM_F_PURGEABLE       0x00000100u
 #define SM_F_SHARED          0x00000200u // file data is a clone / hard link
 #define SM_F_SYMLINK         0x00000400u
+#define SM_F_DETACHED        0x00000800u // removed by a live update; no longer reachable
+#define SM_F_STALE           0x00001000u // a live update was put off; refresh when due
 
 // Marker bits: well-known names found directly inside a directory.
 #define SM_M_GIT             0x00000001u
@@ -101,6 +103,10 @@ typedef struct sm_scan_opts {
     bool want_private;           // request ATTR_CMNEXT_PRIVATESIZE
     bool collect_shared;         // record every clone / hard link member
     bool no_collapse;            // never fold subtrees (for targeted scans)
+    bool background;             // run worker threads at utility QoS
+    uint32_t root_dev;           // if set, roots on another device become mount-point nodes
+    const char *const *skip;     // folders never opened (recorded as denied), e.g. ones
+    int nskip;                   //   macOS would ask the user about
 } sm_scan_opts;
 
 typedef struct sm_tree sm_tree;
@@ -122,12 +128,18 @@ typedef struct sm_tree_stats {
     double   scan_seconds;
     double   created_at;     // unix time
     int      threads;
+    uint64_t event_id;       // FSEvents id the tree is current up to (0 = unknown)
+    uint8_t  events_uuid[16];// FSEvents database UUID that event_id belongs to
+    uint64_t detached;       // unreachable nodes left behind by live updates
 } sm_tree_stats;
 
 // Scanning. The scanner may be polled for progress / cancelled from another thread.
 sm_scanner *sm_scanner_create(const sm_scan_opts *opts);
 // Blocking. Returns the tree (owned by caller) or NULL if cancelled.
 sm_tree *sm_scanner_run(sm_scanner *s, const char *const *roots, int nroots);
+// Like sm_scanner_run; root_flags[i] (may be NULL) may hold SM_F_COLLAPSED / SM_F_PACKAGE
+// to scan that root the way a full scan treats such a directory.
+sm_tree *sm_scanner_run_ex(sm_scanner *s, const char *const *roots, const uint32_t *root_flags, int nroots);
 void sm_scanner_progress(sm_scanner *s, sm_progress *out);
 void sm_scanner_cancel(sm_scanner *s);
 void sm_scanner_free(sm_scanner *s);
@@ -145,6 +157,59 @@ void sm_tree_free(sm_tree *t);
 // Snapshot persistence (atomic write). Return 0 or an errno value.
 int sm_tree_save(const sm_tree *t, const char *path);
 int sm_tree_load(const char *path, sm_tree **out);
+
+// ---- Live updates
+//
+// A tree loaded from a snapshot or produced by a scan can be patched in place.
+// Mutations must not run concurrently with any other access to the tree.
+
+// One directory level as it is on disk now.
+typedef struct sm_entry {
+    const char *name;
+    uint32_t name_len;
+    uint32_t flags;      // SM_F_FILE or SM_F_DIR, plus the flags a full scan would set
+    uint64_t ino;
+    uint64_t alloc;      // files only
+    uint64_t shared;
+    uint64_t logical;
+    int64_t  mtime;
+} sm_entry;
+
+typedef struct sm_listing {
+    uint64_t ino;            // the directory itself
+    int64_t  self_mtime;     // its own mtime, as its parent's listing would show it
+    uint32_t markers;
+    bool collapse_self;      // a full scan would fold this directory (it is a venv)
+    // Small files, as a directory node's own values.
+    uint64_t alloc, shared, logical, img_bytes, vid_bytes, aud_bytes, model_bytes;
+    uint32_t nfiles, img_count;
+    int64_t  mtime;
+    sm_entry *bigs;          // files at or above the big-file threshold
+    size_t nbigs;
+    sm_entry *subs;          // subdirectories
+    size_t nsubs;
+    void *storage;
+} sm_listing;
+
+// Lists one directory. Returns 0 or an errno value (EXDEV: on another device than `dev`).
+int sm_list_dir(const char *path, uint32_t dev, sm_listing *out);
+void sm_listing_free(sm_listing *l);
+
+// Makes directory node `node` match `l`. For subdirectory i, src_nodes[i] is a node in
+// `src` holding a fresh scan of it, or SM_NONE to keep the existing child of that name
+// when its inode still matches. Ancestor totals are updated.
+void sm_tree_apply_listing(sm_tree *t, uint32_t node, const sm_listing *l,
+                           const sm_tree *src, const uint32_t *src_nodes);
+// Replaces node's contents with node `snode` of `src` (a fresh scan of the same path).
+void sm_tree_replace(sm_tree *t, uint32_t node, const sm_tree *src, uint32_t snode);
+// Removes node and everything under it.
+void sm_tree_remove(sm_tree *t, uint32_t node);
+// Deepest node on `path` (an absolute path inside a scan root); *exact tells whether it
+// is the path itself. SM_NONE if the path is outside every scan root.
+uint32_t sm_tree_find(const sm_tree *t, const char *path, size_t len, bool *exact);
+void sm_tree_set_events(sm_tree *t, uint64_t event_id, const uint8_t uuid[16]);
+// Marks the tree as current now (stats.created_at).
+void sm_tree_touch(sm_tree *t);
 
 // Small helpers.
 // Bytes used by this volume alone (APFS volumes share their container's free space).

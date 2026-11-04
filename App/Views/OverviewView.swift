@@ -9,6 +9,7 @@ struct OverviewView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 header
+                if !model.hasFullDiskAccess, !Privacy.alwaysSkip { AccessBanner() }
                 VStack(alignment: .leading, spacing: 12) {
                     CapacityBar(segments: model.segments, total: model.volume.total)
                     Legend(segments: model.segments, free: model.volume.free)
@@ -37,12 +38,7 @@ struct OverviewView: View {
             VStack(alignment: .trailing, spacing: 4) {
                 Text(L("磁盘 \(Fmt.bytes(model.volume.total))", "Disk \(Fmt.bytes(model.volume.total))"))
                 Text(L("已用 \(Fmt.bytes(model.volume.used))", "Used \(Fmt.bytes(model.volume.used))"))
-                if let r = model.report {
-                    Text(L("结果更新于 ", "Updated ") + r.createdAt.formatted(
-                        .relative(presentation: .named).locale(Locale(identifier: Fmt.isChinese ? "zh_Hans" : "en"))))
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
+                LiveBadge()
             }
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -155,5 +151,31 @@ struct KindCard: View {
             return selected > 0 ? L("已勾选 \(Fmt.bytes(selected))", "\(Fmt.bytes(selected)) selected")
                                 : L("\(things.count) 组，默认都没勾，需要你决定", "\(things.count) groups, none preselected")
         }
+    }
+}
+
+/// Without Full Disk Access some folders are left out (rather than asking about each one).
+struct AccessBanner: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "lock.shield")
+                .font(.title2)
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(L("下载、文稿、桌面和其他 App 的数据暂时没算进来", "Downloads, Documents, Desktop and other apps' data are not counted yet"))
+                    .font(.callout.weight(.medium))
+                Text(L("macOS 读这些文件夹前要逐个询问。开启「完全磁盘访问」后一次到位，之后它们也会实时更新。",
+                       "macOS asks before each of these can be read. Turn on Full Disk Access once and they are counted and followed live too."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button(L("打开系统设置", "Open System Settings")) {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
+            }
+        }
+        .padding(14)
+        .background(.orange.opacity(0.08), in: .rect(cornerRadius: 14))
     }
 }

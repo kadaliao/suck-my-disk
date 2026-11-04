@@ -14,12 +14,28 @@ and move `SuckMyDisk.app` to `/Applications`. Builds are signed with a
 Developer ID and notarized.
 
 For complete numbers, grant Full Disk Access (System Settings → Privacy &
-Security → Full Disk Access). Without it, app containers such as WeChat's are
-not counted.
+Security → Full Disk Access). Without it, SuckMyDisk leaves alone the folders
+macOS asks about one by one (Desktop, Documents, Downloads, iCloud Drive, other
+apps' data, external volumes) instead of raising a dialog, and the overview
+says so.
 
 The app has five places to reclaim space (projects, render frames, dev caches,
 models, app data), a whole-disk treemap, a growth timeline, and a menu bar item
 that shows free space. The UI follows the system language (Chinese or English).
+
+## Live
+
+The first scan reads the whole disk (about half a minute to a minute). After
+that the index follows the disk through FSEvents: a changed folder is re-read
+on its own, a new folder is scanned, a removed one drops out, so a 2 GB
+download shows up within a few seconds. Opening the app, or running `smd`,
+replays only what changed since the index was last saved.
+
+Folders that apps rewrite constantly (browser caches, logs) are re-read at
+most every few seconds; huge ones (a Photos library, a 100k-file cache) are
+marked stale and refreshed in the background every few minutes, so following
+the disk costs about 1% of one core. Recognition (projects, frames, caches)
+reruns in the background when enough has changed.
 
 ## Command line
 
@@ -29,7 +45,7 @@ that shows free space. The UI follows the system language (Chinese or English).
 ```sh
 cd Packages/DiskCore
 swift build -c release
-.build/release/smd things          # what uses space, what can go (read-only)
+.build/release/smd things          # what uses space, what can go (read-only); catches up from FSEvents
 .build/release/smd reclaim         # dry run of the preselected plan
 .build/release/smd reclaim --yes   # do it
 ```
@@ -45,7 +61,9 @@ open SuckMyDisk.xcodeproj
 ```
 
 `scripts/release.sh` builds, signs, notarizes (with `NOTARY_PROFILE` set) and
-zips a release into `build/release/`.
+zips a release into `build/release/`. `scripts/make-icon.py` regenerates the
+Icon Composer icon (`App/AppIcon.icon`); `scripts/snapshots.sh` captures every
+section (run it from a terminal that has Screen Recording permission).
 
 ## How it stays safe
 
@@ -68,7 +86,7 @@ App/                   SwiftUI app and menu bar item
 scripts/release.sh     signed, notarized release build
 Packages/DiskCore/
   Sources/CFastScan    parallel getattrlistbulk walker (C)
-  Sources/DiskIndex    tree, snapshot, firmlinks, shared-data accounting, SQLite
+  Sources/DiskIndex    tree, snapshot, live updates (FSEvents), privacy, shared-data accounting, SQLite
   Sources/Insights     activity signals (Claude Code, Codex, shell history, Spotlight)
   Sources/Recognizers  projects, frames, dev caches, models, app data, system
   Sources/Reclaim      executor with guards and journal

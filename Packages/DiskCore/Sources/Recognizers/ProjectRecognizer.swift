@@ -53,6 +53,7 @@ public enum ProjectRecognizer {
             }
             let path = tree.path(i)
             if !ctx.allowAnyPath, isExcluded(path, home: home) { continue }
+            if ctx.isOffLimits(path) { continue }
             var owner = owner
             let name = tree.name(i)
 
@@ -81,6 +82,15 @@ public enum ProjectRecognizer {
             }
         }
 
+        // git checks cost two subprocesses each: only for artifacts big enough to list, in parallel.
+        var checks: [(node: NodeID, path: String, project: String)] = []
+        for p in projects.values {
+            for a in p.artifacts where a.needsGitCheck && tree.size(a.node) >= 1_000_000 {
+                checks.append((a.node, tree.path(a.node), p.path))
+            }
+        }
+        let gitResults = gitStatuses(checks)
+
         let allPaths = Set(projects.values.map(\.path))
         var things: [Thing] = []
         var venvs: [VenvRef] = []
@@ -98,7 +108,10 @@ public enum ProjectRecognizer {
                 let n = tree.node(a.node).pointee
                 let path = tree.path(a.node)
                 var a = a
-                if a.needsGitCheck { a = gitChecked(a, path: path, project: p.path) }
+                if a.needsGitCheck {
+                    guard let g = gitResults[a.node] else { continue }   // too small to list
+                    a = gitChecked(a, g)
+                }
                 let recent = n.t_newest > 0 && ctx.now.timeIntervalSince1970 - Double(n.t_newest) < 7 * 86400
                 var item = ReclaimItem(
                     id: "art:" + path, label: a.kind, path: path, bytes: tree.size(a.node),
@@ -244,11 +257,28 @@ public enum ProjectRecognizer {
         return found
     }
 
-    static func gitChecked(_ a: Artifact, path: String, project: String) -> Artifact {
+    struct GitStatus: Sendable {
+        var ignored = false
+        var tracked = false
+    }
+
+    static func gitStatuses(_ checks: [(node: NodeID, path: String, project: String)]) -> [NodeID: GitStatus] {
+        final class Slot: @unchecked Sendable { var v = GitStatus() }
+        let slots = checks.map { _ in Slot() }
+        DispatchQueue.concurrentPerform(iterations: checks.count) { i in
+            let c = checks[i]
+            slots[i].v.ignored = Shell.run(["git", "-C", c.project, "check-ignore", "-q", c.path], timeout: 10).ok
+            slots[i].v.tracked = Shell.run(["git", "-C", c.project, "ls-files", "--", c.path], timeout: 20).stdout
+                .contains(where: { !$0.isWhitespace })
+        }
+        var out: [NodeID: GitStatus] = [:]
+        for (c, s) in zip(checks, slots) { out[c.node] = s.v }
+        return out
+    }
+
+    static func gitChecked(_ a: Artifact, _ g: GitStatus) -> Artifact {
         var a = a
-        let ignored = Shell.run(["git", "-C", project, "check-ignore", "-q", path], timeout: 10).ok
-        let tracked = Shell.run(["git", "-C", project, "ls-files", "--", path], timeout: 20).stdout
-            .contains(where: { !$0.isWhitespace })
+        let ignored = g.ignored, tracked = g.tracked
         if ignored && !tracked {
             a.strong = true
         } else {

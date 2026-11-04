@@ -8,6 +8,7 @@
 #include <sys/time.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <pthread/qos.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,6 +49,8 @@ struct sm_tree {
     size_t shared_n;
     sm_tree_stats stats;
     void *blob;                    // set when loaded from a snapshot
+    uint32_t blob_chunks;          // chunks that live inside blob
+    arena_block *cur;              // names added by live updates
 };
 
 static sm_tree *tree_new(void) {
@@ -114,15 +117,12 @@ size_t sm_tree_path(const sm_tree *t, uint32_t i, char *buf, size_t cap) {
 
 void sm_tree_free(sm_tree *t) {
     if (!t) return;
-    if (t->blob) {
-        free(t->blob);
-    } else {
-        for (uint32_t c = 0; c < MAX_CHUNKS; c++) {
-            sm_node *ch = atomic_load(&t->chunks[c]);
-            if (!ch) break;
-            free(ch);
-        }
+    for (uint32_t c = 0; c < MAX_CHUNKS; c++) {
+        sm_node *ch = atomic_load(&t->chunks[c]);
+        if (!ch) break;
+        if (!t->blob || c >= t->blob_chunks) free(ch);
     }
+    free(t->blob);
     arena_block *a = t->arenas;
     while (a) { arena_block *n = a->next; free(a); a = n; }
     free(t->shared);
@@ -503,63 +503,73 @@ static char *join_path(const char *dir, const char *name, size_t nlen) {
 }
 
 typedef struct {
-    const char *name;
-    uint32_t len;
-    uint32_t flags;
+    uint32_t name_off, len, flags;
     uint64_t ino;
     int64_t mtime;
 } subdir;
 
-static void process_dir(worker *w, task *tk) {
-    sm_scanner *s = w->s;
-    sm_tree *t = s->tree;
-    bool collapsed = tk->mode == MODE_COLLAPSED;
-    sm_node *own = sm_tree_node(t, tk->node);
+typedef struct {
+    uint32_t name_off, len, flags;
+    uint64_t ino, alloc, shared, logical;
+    int64_t mtime;
+} bigfile;
 
-    const int oflags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
-    int fd;
-    if (tk->parent) {
-        fd = openat(tk->parent->fd, tk->path + tk->name_off, oflags);
-        if (fd < 0 && (errno == EMFILE || errno == ENFILE)) fd = open(tk->path, oflags);
-        dirref_release(tk->parent);
-        tk->parent = NULL;
-    } else {
-        fd = open(tk->path, oflags);
-    }
-    if (fd < 0) {
-        atomic_fetch_add(&s->p_denied, 1);
-        if (!collapsed) own->flags |= SM_F_DENIED;
-        return;
-    }
-    struct stat st;
-    if (fstat(fd, &st) == 0 && (uint32_t)st.st_dev != tk->dev) {
-        close(fd);
-        if (!collapsed) own->flags |= SM_F_MOUNTPOINT;
-        return;
-    }
-    atomic_fetch_add(&s->p_dirs, 1);
+// Everything one directory listing yields. Names live in `names` (offsets, so it can grow).
+typedef struct {
+    acc a;
+    uint32_t markers;
+    subdir *subs;
+    size_t subs_n, subs_cap;
+    bigfile *bigs;
+    size_t bigs_n, bigs_cap;
+    char *names;
+    size_t names_n, names_cap;
+} dirscan;
 
+static uint32_t ds_name(dirscan *d, const char *name, uint32_t nlen) {
+    if (d->names_n + nlen + 1 > d->names_cap) {
+        size_t nc = d->names_cap ? d->names_cap * 2 : 4096;
+        while (nc < d->names_n + nlen + 1) nc *= 2;
+        char *nn = realloc(d->names, nc);
+        if (!nn) abort();
+        d->names = nn;
+        d->names_cap = nc;
+    }
+    uint32_t off = (uint32_t)d->names_n;
+    memcpy(d->names + off, name, nlen);
+    d->names[off + nlen] = 0;
+    d->names_n += nlen + 1;
+    return off;
+}
+
+static void dirscan_free(dirscan *d) {
+    free(d->subs);
+    free(d->bigs);
+    free(d->names);
+}
+
+// Flags a full scan gives a subdirectory named `name`.
+static uint32_t subdir_flags(const sm_scanner *s, bool children_collapse, const char *name, size_t len) {
+    if (s->opts.no_collapse) return 0;
+    size_t el = 0;
+    const char *ext = ext_of(name, len, &el);
+    bool pkg = ext && ext_in(ext, el, PKG_EXT);
+    uint32_t f = pkg ? SM_F_PACKAGE : 0;
+    if (children_collapse || pkg || is_collapse_name(name, len)) f |= SM_F_COLLAPSED;
+    return f;
+}
+
+// Reads every entry of an open directory. Shared records go to `w` (may be NULL) for `node`.
+static void read_dir(sm_scanner *s, worker *w, char *buf, int fd, bool collapsed, uint32_t node, dirscan *d) {
     acc a = {0};
     uint32_t markers = 0;
     uint64_t big_threshold = s->opts.big_file_threshold;
-    bool collect = s->opts.collect_shared;
-
-    // Subdirectories are buffered (names live in w->buf only until the next call),
-    // so copy them into a scratch arena.
-    subdir *subs = NULL;
-    size_t subs_n = 0, subs_cap = 0;
-    char *names = NULL;
-    size_t names_n = 0, names_cap = 0;
-
-    // Big file nodes are created after we know whether this dir collapses.
-    typedef struct { const char *name; uint32_t len; uint64_t ino, alloc, shared, logical; int64_t mtime; uint32_t flags; } bigfile;
-    bigfile *bigs = NULL;
-    size_t bigs_n = 0, bigs_cap = 0;
+    bool collect = w && s->opts.collect_shared;
 
     for (;;) {
-        int n = getattrlistbulk(fd, &s->al, w->buf, BULK_BUF, FSOPT_ATTR_CMN_EXTENDED | FSOPT_NOFOLLOW);
+        int n = getattrlistbulk(fd, &s->al, buf, BULK_BUF, FSOPT_ATTR_CMN_EXTENDED | FSOPT_NOFOLLOW);
         if (n <= 0) break;
-        char *e = w->buf;
+        char *e = buf;
         for (int i = 0; i < n; i++) {
             char *f = e;
             uint32_t elen;
@@ -605,27 +615,14 @@ static void process_dir(worker *w, task *tk) {
             if (!collapsed) markers |= marker_for(name, nlen, is_dir);
 
             if (is_dir) {
-                if (subs_n == subs_cap) {
-                    subs_cap = subs_cap ? subs_cap * 2 : 64;
-                    subs = realloc(subs, subs_cap * sizeof(subdir));
-                    if (!subs) abort();
+                if (d->subs_n == d->subs_cap) {
+                    d->subs_cap = d->subs_cap ? d->subs_cap * 2 : 64;
+                    d->subs = realloc(d->subs, d->subs_cap * sizeof(subdir));
+                    if (!d->subs) abort();
                 }
-                if (names_n + nlen + 1 > names_cap) {
-                    size_t nc = names_cap ? names_cap * 2 : 4096;
-                    while (nc < names_n + nlen + 1) nc *= 2;
-                    char *nn = realloc(names, nc);
-                    if (!nn) abort();
-                    // Fix up earlier pointers.
-                    for (size_t k = 0; k < subs_n; k++) subs[k].name = nn + (subs[k].name - names);
-                    names = nn;
-                    names_cap = nc;
-                }
-                memcpy(names + names_n, name, nlen);
-                names[names_n + nlen] = 0;
-                subdir sd = {names + names_n, nlen, 0, ino, mtime};
+                subdir sd = {ds_name(d, name, nlen), nlen, 0, ino, mtime};
                 if (bsdflags & SF_DATALESS) sd.flags |= SM_F_DATALESS;
-                subs[subs_n++] = sd;
-                names_n += nlen + 1;
+                d->subs[d->subs_n++] = sd;
                 if (mtime > a.mtime) a.mtime = mtime;
                 continue;
             }
@@ -653,7 +650,7 @@ static void process_dir(worker *w, task *tk) {
                 if (shard_insert(&s->shards[mix64(key) & (SHARDS - 1)], key))
                     atomic_fetch_add(&s->shared_unique, alloc);
                 if (collect) {
-                    sm_shared_rec r = {key, ino, alloc, priv, refs, tk->node};
+                    sm_shared_rec r = {key, ino, alloc, priv, refs, node};
                     add_rec(w, r);
                 }
             }
@@ -669,23 +666,66 @@ static void process_dir(worker *w, task *tk) {
             }
 
             if (!collapsed && alloc >= big_threshold) {
-                if (bigs_n == bigs_cap) {
-                    bigs_cap = bigs_cap ? bigs_cap * 2 : 32;
-                    bigs = realloc(bigs, bigs_cap * sizeof(bigfile));
-                    if (!bigs) abort();
+                if (d->bigs_n == d->bigs_cap) {
+                    d->bigs_cap = d->bigs_cap ? d->bigs_cap * 2 : 32;
+                    d->bigs = realloc(d->bigs, d->bigs_cap * sizeof(bigfile));
+                    if (!d->bigs) abort();
                 }
                 uint32_t fl = SM_F_FILE;
                 if (shared) fl |= SM_F_SHARED;
                 if ((ef & EF_IS_SPARSE) || (dlen > (64u << 20) && alloc < dlen / 2)) fl |= SM_F_SPARSE;
                 if (ef & EF_IS_PURGEABLE) fl |= SM_F_PURGEABLE;
                 if (type == VLNK) fl |= SM_F_SYMLINK;
-                bigfile bf = {arena_put(w, name, nlen), nlen, ino, shared ? 0 : alloc, share, dlen, mtime, fl};
-                bigs[bigs_n++] = bf;
+                bigfile bf = {ds_name(d, name, nlen), nlen, fl, ino, shared ? 0 : alloc, share, dlen, mtime};
+                d->bigs[d->bigs_n++] = bf;
             } else {
                 if (shared) a.shared += share; else a.alloc += alloc;
             }
         }
     }
+    d->a = a;
+    d->markers = markers;
+}
+
+static bool is_skipped(const sm_scanner *s, const char *path) {
+    for (int i = 0; i < s->opts.nskip; i++)
+        if (strcmp(path, s->opts.skip[i]) == 0) return true;
+    return false;
+}
+
+static void process_dir(worker *w, task *tk) {
+    sm_scanner *s = w->s;
+    sm_tree *t = s->tree;
+    bool collapsed = tk->mode == MODE_COLLAPSED;
+    sm_node *own = sm_tree_node(t, tk->node);
+
+    const int oflags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
+    int fd;
+    if (tk->parent) {
+        fd = openat(tk->parent->fd, tk->path + tk->name_off, oflags);
+        if (fd < 0 && (errno == EMFILE || errno == ENFILE)) fd = open(tk->path, oflags);
+        dirref_release(tk->parent);
+        tk->parent = NULL;
+    } else {
+        fd = open(tk->path, oflags);
+    }
+    if (fd < 0) {
+        atomic_fetch_add(&s->p_denied, 1);
+        if (!collapsed) own->flags |= SM_F_DENIED;
+        return;
+    }
+    struct stat st;
+    if (fstat(fd, &st) == 0 && (uint32_t)st.st_dev != tk->dev) {
+        close(fd);
+        if (!collapsed) own->flags |= SM_F_MOUNTPOINT;
+        return;
+    }
+    atomic_fetch_add(&s->p_dirs, 1);
+
+    dirscan d = {0};
+    read_dir(s, w, w->buf, fd, collapsed, tk->node, &d);
+    acc a = d.a;
+    uint32_t markers = d.markers;
     atomic_fetch_add(&s->p_files, a.files);
     atomic_fetch_add(&s->p_bytes, a.alloc);
 
@@ -708,23 +748,24 @@ static void process_dir(worker *w, task *tk) {
         atomic_max64(&own->mtime, a.mtime);
     } else {
         // Big files become nodes, unless this dir folds its subtree.
-        for (size_t k = 0; k < bigs_n; k++) {
+        for (size_t k = 0; k < d.bigs_n; k++) {
+            bigfile *b = &d.bigs[k];
             if (collapse_self) {
-                a.alloc += bigs[k].alloc;
-                a.shared += bigs[k].shared;
+                a.alloc += b->alloc;
+                a.shared += b->shared;
                 continue;
             }
             uint32_t ci = tree_alloc_node(t);
             sm_node *c = sm_tree_node(t, ci);
             c->parent = tk->node;
-            c->flags = bigs[k].flags;
-            c->name = bigs[k].name;
-            c->name_len = bigs[k].len;
-            c->ino = bigs[k].ino;
-            c->alloc = bigs[k].alloc;
-            c->shared = bigs[k].shared;
-            c->logical = bigs[k].logical;
-            c->mtime = bigs[k].mtime;
+            c->flags = b->flags;
+            c->name = arena_put(w, d.names + b->name_off, b->len);
+            c->name_len = b->len;
+            c->ino = b->ino;
+            c->alloc = b->alloc;
+            c->shared = b->shared;
+            c->logical = b->logical;
+            c->mtime = b->mtime;
             c->nfiles = 1;
         }
         // Collapsed dirs may already have collapsed children writing into them,
@@ -745,60 +786,63 @@ static void process_dir(worker *w, task *tk) {
 
     // Children.
     w->kids_n = 0;
-    for (size_t k = 0; k < subs_n; k++) {
-        subdir *sd = &subs[k];
+    size_t plen = strlen(tk->path);
+    uint32_t noff = (uint32_t)(plen + ((plen > 0 && tk->path[plen - 1] == '/') ? 0 : 1));
+    for (size_t k = 0; k < d.subs_n; k++) {
+        subdir *sd = &d.subs[k];
+        const char *sname = d.names + sd->name_off;
         if (sd->flags & SM_F_DATALESS) {
             if (!collapsed && !collapse_self) {
                 uint32_t ci = tree_alloc_node(t);
                 sm_node *c = sm_tree_node(t, ci);
                 c->parent = tk->node;
                 c->flags = SM_F_DIR | SM_F_DATALESS;
-                c->name = arena_put(w, sd->name, sd->len);
+                c->name = arena_put(w, sname, sd->len);
                 c->name_len = sd->len;
                 c->ino = sd->ino;
                 c->mtime = sd->mtime;
             }
             continue;
         }
-        size_t plen = strlen(tk->path);
-        uint32_t noff = (uint32_t)(plen + ((plen > 0 && tk->path[plen - 1] == '/') ? 0 : 1));
-        task ct = {join_path(tk->path, sd->name, sd->len), NULL, noff, tk->node, tk->dev, MODE_COLLAPSED};
+        task ct = {join_path(tk->path, sname, sd->len), NULL, noff, tk->node, tk->dev, MODE_COLLAPSED};
+        if (s->opts.nskip && is_skipped(s, ct.path)) {
+            if (!collapsed && !collapse_self) {
+                uint32_t ci = tree_alloc_node(t);
+                sm_node *c = sm_tree_node(t, ci);
+                c->parent = tk->node;
+                c->flags = SM_F_DIR | SM_F_DENIED;
+                c->name = arena_put(w, sname, sd->len);
+                c->name_len = sd->len;
+                c->ino = sd->ino;
+            }
+            atomic_fetch_add(&s->p_denied, 1);
+            free(ct.path);
+            continue;
+        }
         if (!collapsed && !collapse_self) {
             uint32_t ci = tree_alloc_node(t);
             sm_node *c = sm_tree_node(t, ci);
             c->parent = tk->node;
-            c->flags = SM_F_DIR;
-            c->name = arena_put(w, sd->name, sd->len);
+            c->flags = SM_F_DIR | subdir_flags(s, children_collapse, sname, sd->len);
+            c->name = arena_put(w, sname, sd->len);
             c->name_len = sd->len;
             c->ino = sd->ino;
             ct.node = ci;
-            ct.mode = MODE_NORMAL;
-            if (!s->opts.no_collapse) {
-                size_t el = 0;
-                const char *ext = ext_of(sd->name, sd->len, &el);
-                bool pkg = ext && ext_in(ext, el, PKG_EXT);
-                if (pkg) c->flags |= SM_F_PACKAGE;
-                if (children_collapse || pkg || is_collapse_name(sd->name, sd->len)) {
-                    ct.mode = MODE_SELF_COLLAPSE;
-                    c->flags |= SM_F_COLLAPSED;
-                }
-            }
+            ct.mode = (c->flags & SM_F_COLLAPSED) ? MODE_SELF_COLLAPSE : MODE_NORMAL;
         }
         add_kid(w, ct);
     }
     if (w->kids_n) {
-        dirref *d = malloc(sizeof(dirref));
-        if (!d) abort();
-        d->fd = fd;
-        atomic_store(&d->refs, (int)w->kids_n);
-        for (size_t k = 0; k < w->kids_n; k++) w->kids[k].parent = d;
+        dirref *dr = malloc(sizeof(dirref));
+        if (!dr) abort();
+        dr->fd = fd;
+        atomic_store(&dr->refs, (int)w->kids_n);
+        for (size_t k = 0; k < w->kids_n; k++) w->kids[k].parent = dr;
         push_tasks(s, w->kids, w->kids_n);
     } else {
         close(fd);
     }
-    free(subs);
-    free(names);
-    free(bigs);
+    dirscan_free(&d);
 }
 
 static void *worker_main(void *arg) {
@@ -860,6 +904,10 @@ static void finalize(sm_tree *t) {
 }
 
 sm_tree *sm_scanner_run(sm_scanner *s, const char *const *roots, int nroots) {
+    return sm_scanner_run_ex(s, roots, NULL, nroots);
+}
+
+sm_tree *sm_scanner_run_ex(sm_scanner *s, const char *const *roots, const uint32_t *root_flags, int nroots) {
     double t0 = now_seconds();
     sm_disable_dataless_materialization();
     struct rlimit rl;
@@ -888,16 +936,20 @@ sm_tree *sm_scanner_run(sm_scanner *s, const char *const *roots, int nroots) {
         uint32_t ci = tree_alloc_node(t);
         sm_node *c = sm_tree_node(t, ci);
         c->parent = root;
-        c->flags = SM_F_DIR;
+        c->flags = SM_F_DIR | (root_flags ? root_flags[i] & (SM_F_COLLAPSED | SM_F_PACKAGE) : 0);
         size_t l = strlen(roots[i]);
         while (l > 1 && roots[i][l - 1] == '/') l--;
         c->name = arena_put(&boot, roots[i], l);
         c->name_len = (uint32_t)l;
         c->ino = st.st_ino;
+        if (s->opts.root_dev && (uint32_t)st.st_dev != s->opts.root_dev) {
+            c->flags |= SM_F_MOUNTPOINT;
+            continue;
+        }
         char *p = malloc(l + 1);
         memcpy(p, roots[i], l);
         p[l] = 0;
-        task tk = {p, NULL, 0, ci, (uint32_t)st.st_dev, MODE_NORMAL};
+        task tk = {p, NULL, 0, ci, (uint32_t)st.st_dev, (c->flags & SM_F_COLLAPSED) ? MODE_SELF_COLLAPSE : MODE_NORMAL};
         push_tasks(s, &tk, 1);
     }
 
@@ -908,6 +960,7 @@ sm_tree *sm_scanner_run(sm_scanner *s, const char *const *roots, int nroots) {
         pthread_attr_t at;
         pthread_attr_init(&at);
         pthread_attr_setstacksize(&at, 1u << 20);
+        if (s->opts.background) pthread_attr_set_qos_class_np(&at, QOS_CLASS_UTILITY, 0);
         pthread_create(&th[i], &at, worker_main, &ws[i]);
         pthread_attr_destroy(&at);
     }
@@ -946,7 +999,7 @@ sm_tree *sm_scanner_run(sm_scanner *s, const char *const *roots, int nroots) {
 
 // ---------------------------------------------------------------- snapshots
 
-#define SNAP_MAGIC "SMDIDX02"
+#define SNAP_MAGIC "SMDIDX03"
 
 typedef struct {
     char magic[8];
@@ -957,22 +1010,43 @@ typedef struct {
 } snap_header;
 
 int sm_tree_save(const sm_tree *t, const char *path) {
-    uint32_t n = sm_tree_count(t);
-    // Names blob.
+    // Only reachable nodes are written, in pre-order (parents before children),
+    // which also drops whatever live updates detached.
+    uint32_t total = sm_tree_count(t);
+    uint32_t *order = malloc((size_t)(total ? total : 1) * sizeof(uint32_t));
+    uint32_t *map = malloc((size_t)(total ? total : 1) * sizeof(uint32_t));
+    uint32_t *stack = malloc((size_t)(total ? total : 1) * sizeof(uint32_t));
+    if (!order || !map || !stack) { free(order); free(map); free(stack); return ENOMEM; }
+    uint32_t n = 0;
+    size_t sp = 0;
+    if (total) stack[sp++] = 0;
+    while (sp) {
+        uint32_t i = stack[--sp];
+        map[i] = n;
+        order[n++] = i;
+        for (uint32_t c = sm_tree_node(t, i)->first_child; c != SM_NONE; c = sm_tree_node(t, c)->next_sibling)
+            stack[sp++] = c;
+    }
+    free(stack);
     uint64_t names_len = 0;
-    for (uint32_t i = 0; i < n; i++) names_len += sm_tree_node(t, i)->name_len + 1;
+    for (uint32_t k = 0; k < n; k++) names_len += sm_tree_node(t, order[k])->name_len + 1;
     char *names = malloc(names_len ? names_len : 1);
-    sm_node *nodes = malloc((size_t)n * sizeof(sm_node));
-    if (!names || !nodes) { free(names); free(nodes); return ENOMEM; }
+    sm_node *nodes = malloc((size_t)(n ? n : 1) * sizeof(sm_node));
+    if (!names || !nodes) { free(names); free(nodes); free(order); free(map); return ENOMEM; }
     uint64_t off = 0;
-    for (uint32_t i = 0; i < n; i++) {
-        const sm_node *x = sm_tree_node(t, i);
-        nodes[i] = *x;
+    for (uint32_t k = 0; k < n; k++) {
+        const sm_node *x = sm_tree_node(t, order[k]);
+        nodes[k] = *x;
+        nodes[k].parent = x->parent == SM_NONE ? SM_NONE : map[x->parent];
+        nodes[k].first_child = x->first_child == SM_NONE ? SM_NONE : map[x->first_child];
+        nodes[k].next_sibling = x->next_sibling == SM_NONE ? SM_NONE : map[x->next_sibling];
         memcpy(names + off, x->name, x->name_len);
         names[off + x->name_len] = 0;
-        nodes[i].name = (const char *)(uintptr_t)off;
+        nodes[k].name = (const char *)(uintptr_t)off;
         off += x->name_len + 1;
     }
+    free(order);
+    free(map);
     snap_header h;
     memset(&h, 0, sizeof h);
     memcpy(h.magic, SNAP_MAGIC, 8);
@@ -980,6 +1054,8 @@ int sm_tree_save(const sm_tree *t, const char *path) {
     h.node_count = n;
     h.names_len = names_len;
     sm_tree_get_stats(t, &h.stats);
+    h.stats.node_count = n;
+    h.stats.detached = 0;
 
     size_t pl = strlen(path);
     char *tmp = malloc(pl + 8);
@@ -1011,10 +1087,14 @@ int sm_tree_load(const char *path, sm_tree **out) {
         return EINVAL;
     }
     size_t nodes_bytes = (size_t)h.node_count * sizeof(sm_node);
-    char *blob = malloc(nodes_bytes + h.names_len + 1);
+    // Whole chunks, so live updates can append nodes after the loaded ones.
+    uint32_t nchunks = (uint32_t)(((size_t)h.node_count + CHUNK_SIZE - 1) / CHUNK_SIZE);
+    size_t padded = (size_t)nchunks * CHUNK_SIZE * sizeof(sm_node);
+    char *blob = malloc(padded + h.names_len + 1);
     if (!blob) { fclose(fp); return ENOMEM; }
+    memset(blob + nodes_bytes, 0, padded - nodes_bytes);
     if ((nodes_bytes && fread(blob, 1, nodes_bytes, fp) != nodes_bytes) ||
-        (h.names_len && fread(blob + nodes_bytes, 1, h.names_len, fp) != h.names_len)) {
+        (h.names_len && fread(blob + padded, 1, h.names_len, fp) != h.names_len)) {
         free(blob);
         fclose(fp);
         return EIO;
@@ -1023,8 +1103,9 @@ int sm_tree_load(const char *path, sm_tree **out) {
     sm_tree *t = tree_new();
     if (!t) { free(blob); return ENOMEM; }
     t->blob = blob;
+    t->blob_chunks = nchunks;
     sm_node *nodes = (sm_node *)blob;
-    const char *names = blob + nodes_bytes;
+    const char *names = blob + padded;
     for (uint32_t i = 0; i < h.node_count; i++) nodes[i].name = names + (uintptr_t)nodes[i].name;
     for (uint32_t c = 0; (size_t)c * CHUNK_SIZE < h.node_count; c++)
         atomic_store(&t->chunks[c], nodes + (size_t)c * CHUNK_SIZE);
@@ -1033,3 +1114,435 @@ int sm_tree_load(const char *path, sm_tree **out) {
     *out = t;
     return 0;
 }
+
+// ---------------------------------------------------------------- live updates
+//
+// Single writer: none of these may run while anything else reads the tree.
+
+static const char *tree_put_name(sm_tree *t, const char *str, size_t len) {
+    arena_block *a = t->cur;
+    if (!a || a->used + len + 1 > a->cap) {
+        size_t cap = len + 1 > (64u << 10) ? len + 1 : (64u << 10);
+        a = malloc(sizeof(arena_block) + cap);
+        if (!a) abort();
+        a->used = 0;
+        a->cap = cap;
+        a->next = t->arenas;
+        t->arenas = a;
+        t->cur = a;
+    }
+    char *dst = a->data + a->used;
+    memcpy(dst, str, len);
+    dst[len] = 0;
+    a->used += len + 1;
+    return dst;
+}
+
+static pthread_once_t dataless_once = PTHREAD_ONCE_INIT;
+static void dataless_off(void) { sm_disable_dataless_materialization(); }
+
+int sm_list_dir(const char *path, uint32_t dev, sm_listing *out) {
+    memset(out, 0, sizeof *out);
+    pthread_once(&dataless_once, dataless_off);
+    int fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) return errno;
+    struct stat st;
+    if (fstat(fd, &st) != 0) { int e = errno; close(fd); return e; }
+    if (dev && (uint32_t)st.st_dev != dev) { close(fd); return EXDEV; }
+    sm_scanner *s = sm_scanner_create(NULL);
+    char *buf = malloc(BULK_BUF);
+    if (!s || !buf) { close(fd); free(buf); sm_scanner_free(s); return ENOMEM; }
+    dirscan d = {0};
+    read_dir(s, NULL, buf, fd, false, 0, &d);
+    close(fd);
+    free(buf);
+
+    out->ino = st.st_ino;
+    out->self_mtime = st.st_mtimespec.tv_sec;
+    out->markers = d.markers;
+    out->alloc = d.a.alloc;
+    out->shared = d.a.shared;
+    out->logical = d.a.logical;
+    out->img_bytes = d.a.img_bytes;
+    out->vid_bytes = d.a.vid_bytes;
+    out->aud_bytes = d.a.aud_bytes;
+    out->model_bytes = d.a.model_bytes;
+    out->nfiles = (uint32_t)d.a.files;
+    out->img_count = d.a.img_count;
+    out->mtime = d.a.mtime;
+    out->collapse_self = (d.markers & SM_M_PYVENV_CFG) != 0;
+
+    size_t plen = strlen(path);
+    while (plen > 1 && path[plen - 1] == '/') plen--;
+    size_t lo = plen;
+    while (lo > 0 && path[lo - 1] != '/') lo--;
+    bool children_collapse = !out->collapse_self &&
+        ((d.markers & SM_M_CACHEDIR_TAG) || is_children_collapse_name(path + lo, plen - lo));
+
+    // One allocation for entries; names stay in d.names (kept as storage).
+    size_t n = d.bigs_n + d.subs_n;
+    sm_entry *ents = calloc(n ? n : 1, sizeof(sm_entry));
+    if (!ents) { dirscan_free(&d); sm_scanner_free(s); return ENOMEM; }
+    for (size_t k = 0; k < d.bigs_n; k++) {
+        bigfile *b = &d.bigs[k];
+        ents[k] = (sm_entry){d.names + b->name_off, b->len, b->flags, b->ino, b->alloc, b->shared, b->logical, b->mtime};
+    }
+    for (size_t k = 0; k < d.subs_n; k++) {
+        subdir *sd = &d.subs[k];
+        const char *nm = d.names + sd->name_off;
+        uint32_t fl = SM_F_DIR | sd->flags;
+        if (!(fl & SM_F_DATALESS)) fl |= subdir_flags(s, children_collapse, nm, sd->len);
+        ents[d.bigs_n + k] = (sm_entry){nm, sd->len, fl, sd->ino, 0, 0, 0, sd->mtime};
+    }
+    out->bigs = ents;
+    out->nbigs = d.bigs_n;
+    out->subs = ents + d.bigs_n;
+    out->nsubs = d.subs_n;
+    out->storage = d.names;
+    d.names = NULL;
+    dirscan_free(&d);
+    sm_scanner_free(s);
+    return 0;
+}
+
+void sm_listing_free(sm_listing *l) {
+    if (!l) return;
+    free(l->bigs);
+    free(l->storage);
+    memset(l, 0, sizeof *l);
+}
+
+typedef struct { uint64_t alloc, shared, logical, files; int64_t newest; } totals;
+
+static totals totals_of(const sm_node *x) {
+    return (totals){x->t_alloc, x->t_shared, x->t_logical, x->t_files, x->t_newest};
+}
+
+// Adds (now - before) to every ancestor of `i`. Unsigned wrap-around is intended.
+static void propagate(sm_tree *t, uint32_t i, totals before, totals now) {
+    uint32_t p = sm_tree_node(t, i)->parent;
+    while (p != SM_NONE) {
+        sm_node *a = sm_tree_node(t, p);
+        a->t_alloc += now.alloc - before.alloc;
+        a->t_shared += now.shared - before.shared;
+        a->t_logical += now.logical - before.logical;
+        a->t_files += now.files - before.files;
+        if (now.newest > a->t_newest) a->t_newest = now.newest;
+        p = a->parent;
+    }
+    t->stats.shared_unique += now.shared - before.shared;
+}
+
+static void recompute(sm_tree *t, uint32_t i) {
+    sm_node *x = sm_tree_node(t, i);
+    x->t_alloc = x->alloc;
+    x->t_shared = x->shared;
+    x->t_logical = x->logical;
+    x->t_files = x->nfiles;
+    x->t_newest = x->mtime;
+    for (uint32_t c = x->first_child; c != SM_NONE; c = sm_tree_node(t, c)->next_sibling) {
+        const sm_node *y = sm_tree_node(t, c);
+        x->t_alloc += y->t_alloc;
+        x->t_shared += y->t_shared;
+        x->t_logical += y->t_logical;
+        x->t_files += y->t_files;
+        if (y->t_newest > x->t_newest) x->t_newest = y->t_newest;
+    }
+}
+
+static void mark_detached(sm_tree *t, uint32_t i) {
+    size_t cap = 256, sp = 0;
+    uint32_t *st = malloc(cap * sizeof(uint32_t));
+    if (!st) abort();
+    st[sp++] = i;
+    uint64_t n = 0;
+    while (sp) {
+        uint32_t j = st[--sp];
+        sm_node *x = sm_tree_node(t, j);
+        x->flags |= SM_F_DETACHED;
+        n++;
+        for (uint32_t c = x->first_child; c != SM_NONE; c = sm_tree_node(t, c)->next_sibling) {
+            if (sp == cap) {
+                cap *= 2;
+                st = realloc(st, cap * sizeof(uint32_t));
+                if (!st) abort();
+            }
+            st[sp++] = c;
+        }
+    }
+    free(st);
+    t->stats.detached += n;
+}
+
+static void link_child(sm_tree *t, uint32_t parent, uint32_t c) {
+    sm_node *p = sm_tree_node(t, parent);
+    sm_tree_node(t, c)->parent = parent;
+    sm_tree_node(t, c)->next_sibling = p->first_child;
+    p->first_child = c;
+}
+
+// Copies src node `s` and its subtree into t, named `name`, with parent `parent`.
+// The copy itself is not linked into the parent's child list.
+static uint32_t graft(sm_tree *t, uint32_t parent, const sm_tree *src, uint32_t s, const char *name, uint32_t name_len) {
+    typedef struct { uint32_t s, dparent; } pair;
+    size_t cap = 256, sp = 0;
+    pair *st = malloc(cap * sizeof(pair));
+    if (!st) abort();
+    st[sp++] = (pair){s, parent};
+    uint32_t top = SM_NONE;
+    while (sp) {
+        pair e = st[--sp];
+        uint32_t d = tree_alloc_node(t);
+        sm_node *x = sm_tree_node(t, d);
+        const sm_node *y = sm_tree_node(src, e.s);
+        *x = *y;
+        x->first_child = SM_NONE;
+        x->next_sibling = SM_NONE;
+        x->parent = e.dparent;
+        x->flags &= ~SM_F_DETACHED;
+        if (top == SM_NONE) {
+            top = d;
+            x->name = tree_put_name(t, name, name_len);
+            x->name_len = name_len;
+        } else {
+            x->name = tree_put_name(t, y->name, y->name_len);
+            link_child(t, e.dparent, d);
+        }
+        for (uint32_t c = y->first_child; c != SM_NONE; c = sm_tree_node(src, c)->next_sibling) {
+            if (sp == cap) {
+                cap *= 2;
+                st = realloc(st, cap * sizeof(pair));
+                if (!st) abort();
+            }
+            st[sp++] = (pair){c, d};
+        }
+    }
+    free(st);
+    return top;
+}
+
+void sm_tree_remove(sm_tree *t, uint32_t i) {
+    if (i == 0 || i >= sm_tree_count(t)) return;
+    sm_node *x = sm_tree_node(t, i);
+    if (x->flags & SM_F_DETACHED) return;
+    totals before = totals_of(x);
+    if (x->parent != SM_NONE) {
+        uint32_t *link = &sm_tree_node(t, x->parent)->first_child;
+        while (*link != SM_NONE) {
+            if (*link == i) { *link = x->next_sibling; break; }
+            link = &sm_tree_node(t, *link)->next_sibling;
+        }
+        x->next_sibling = SM_NONE;
+    }
+    propagate(t, i, before, (totals){0, 0, 0, 0, 0});
+    mark_detached(t, i);
+}
+
+void sm_tree_replace(sm_tree *t, uint32_t i, const sm_tree *src, uint32_t s) {
+    if (i == 0 || i >= sm_tree_count(t)) return;
+    sm_node *x = sm_tree_node(t, i);
+    if (x->flags & SM_F_DETACHED) return;
+    totals before = totals_of(x);
+    for (uint32_t c = x->first_child; c != SM_NONE;) {
+        uint32_t next = sm_tree_node(t, c)->next_sibling;
+        mark_detached(t, c);
+        c = next;
+    }
+    x->first_child = SM_NONE;
+    const sm_node *y = sm_tree_node(src, s);
+    x->flags = y->flags & ~(SM_F_DETACHED | SM_F_STALE);
+    x->markers = y->markers;
+    x->ino = y->ino;
+    x->alloc = y->alloc;
+    x->shared = y->shared;
+    x->logical = y->logical;
+    x->mtime = y->mtime;
+    x->nfiles = y->nfiles;
+    x->img_count = y->img_count;
+    x->img_bytes = y->img_bytes;
+    x->vid_bytes = y->vid_bytes;
+    x->aud_bytes = y->aud_bytes;
+    x->model_bytes = y->model_bytes;
+    for (uint32_t c = y->first_child; c != SM_NONE; c = sm_tree_node(src, c)->next_sibling) {
+        const sm_node *yc = sm_tree_node(src, c);
+        uint32_t d = graft(t, i, src, c, yc->name, yc->name_len);
+        link_child(t, i, d);
+    }
+    recompute(t, i);
+    propagate(t, i, before, totals_of(x));
+}
+
+typedef struct {
+    const char *name;
+    uint32_t len;
+    uint32_t is_dir;
+    uint32_t idx;
+    bool used;
+} kid;
+
+static int kid_cmp(const void *a, const void *b) {
+    const kid *x = a, *y = b;
+    if (x->is_dir != y->is_dir) return x->is_dir < y->is_dir ? -1 : 1;
+    size_t l = x->len < y->len ? x->len : y->len;
+    int c = memcmp(x->name, y->name, l);
+    if (c) return c;
+    return x->len < y->len ? -1 : x->len > y->len ? 1 : 0;
+}
+
+static kid *kid_find(kid *kids, size_t n, const char *name, uint32_t len, uint32_t is_dir) {
+    kid key = {name, len, is_dir, 0, false};
+    return bsearch(&key, kids, n, sizeof(kid), kid_cmp);
+}
+
+void sm_tree_apply_listing(sm_tree *t, uint32_t i, const sm_listing *l,
+                           const sm_tree *src, const uint32_t *src_nodes) {
+    if (i == 0 || i >= sm_tree_count(t)) return;
+    sm_node *x = sm_tree_node(t, i);
+    if (x->flags & SM_F_DETACHED) return;
+    totals before = totals_of(x);
+
+    size_t nk = 0;
+    for (uint32_t c = x->first_child; c != SM_NONE; c = sm_tree_node(t, c)->next_sibling) nk++;
+    kid *kids = malloc((nk ? nk : 1) * sizeof(kid));
+    if (!kids) abort();
+    nk = 0;
+    for (uint32_t c = x->first_child; c != SM_NONE; c = sm_tree_node(t, c)->next_sibling) {
+        const sm_node *y = sm_tree_node(t, c);
+        kids[nk++] = (kid){y->name, y->name_len, (y->flags & SM_F_DIR) ? 1u : 0u, c, false};
+    }
+    qsort(kids, nk, sizeof(kid), kid_cmp);
+
+    x->markers = l->markers;
+    x->ino = l->ino;
+    x->alloc = l->alloc;
+    x->shared = l->shared;
+    x->logical = l->logical;
+    x->mtime = l->mtime;
+    x->nfiles = l->nfiles;
+    x->img_count = l->img_count;
+    x->img_bytes = l->img_bytes;
+    x->vid_bytes = l->vid_bytes;
+    x->aud_bytes = l->aud_bytes;
+    x->model_bytes = l->model_bytes;
+    x->flags &= ~(SM_F_DENIED | SM_F_DATALESS | SM_F_STALE);
+    x->first_child = SM_NONE;
+
+    for (size_t k = 0; k < l->nbigs; k++) {
+        const sm_entry *e = &l->bigs[k];
+        kid *old = kid_find(kids, nk, e->name, e->name_len, 0);
+        uint32_t ci;
+        if (old && !old->used) {
+            old->used = true;
+            ci = old->idx;
+        } else {
+            ci = tree_alloc_node(t);
+            sm_node *c = sm_tree_node(t, ci);
+            c->name = tree_put_name(t, e->name, e->name_len);
+            c->name_len = e->name_len;
+        }
+        sm_node *c = sm_tree_node(t, ci);
+        c->flags = e->flags;
+        c->markers = 0;
+        c->ino = e->ino;
+        c->alloc = e->alloc;
+        c->shared = e->shared;
+        c->logical = e->logical;
+        c->mtime = e->mtime;
+        c->nfiles = 1;
+        c->t_alloc = e->alloc;
+        c->t_shared = e->shared;
+        c->t_logical = e->logical;
+        c->t_newest = e->mtime;
+        c->t_files = 1;
+        c->first_child = SM_NONE;
+        link_child(t, i, ci);
+    }
+
+    for (size_t k = 0; k < l->nsubs; k++) {
+        const sm_entry *e = &l->subs[k];
+        kid *old = kid_find(kids, nk, e->name, e->name_len, 1);
+        uint32_t ci;
+        if (src && src_nodes && src_nodes[k] != SM_NONE) {
+            ci = graft(t, i, src, src_nodes[k], e->name, e->name_len);
+        } else if (old && !old->used && sm_tree_node(t, old->idx)->ino == e->ino) {
+            old->used = true;
+            ci = old->idx;
+        } else {
+            // Not scanned (dataless, or no scan was provided): an empty placeholder.
+            ci = tree_alloc_node(t);
+            sm_node *c = sm_tree_node(t, ci);
+            c->name = tree_put_name(t, e->name, e->name_len);
+            c->name_len = e->name_len;
+            c->flags = SM_F_DIR | (e->flags & (SM_F_DATALESS | SM_F_COLLAPSED | SM_F_PACKAGE));
+            c->ino = e->ino;
+            c->mtime = (e->flags & SM_F_DATALESS) ? e->mtime : 0;
+            c->t_newest = c->mtime;
+        }
+        link_child(t, i, ci);
+    }
+
+    for (size_t k = 0; k < nk; k++) {
+        if (kids[k].used) continue;
+        sm_tree_node(t, kids[k].idx)->next_sibling = SM_NONE;
+        mark_detached(t, kids[k].idx);
+    }
+    free(kids);
+    recompute(t, i);
+    propagate(t, i, before, totals_of(x));
+
+    // The parent's own mtime includes this directory's mtime as one of its entries.
+    uint32_t p = x->parent;
+    if (p != SM_NONE && p != 0 && l->self_mtime > sm_tree_node(t, p)->mtime) {
+        sm_tree_node(t, p)->mtime = l->self_mtime;
+        for (; p != SM_NONE; p = sm_tree_node(t, p)->parent) {
+            sm_node *a = sm_tree_node(t, p);
+            if (a->t_newest < l->self_mtime) a->t_newest = l->self_mtime;
+        }
+    }
+}
+
+uint32_t sm_tree_find(const sm_tree *t, const char *path, size_t len, bool *exact) {
+    *exact = false;
+    while (len > 1 && path[len - 1] == '/') len--;
+    if (len == 0 || sm_tree_count(t) == 0) return SM_NONE;
+    for (uint32_t r = sm_tree_node(t, 0)->first_child; r != SM_NONE; r = sm_tree_node(t, r)->next_sibling) {
+        const sm_node *rn = sm_tree_node(t, r);
+        size_t rl = rn->name_len;
+        size_t pos;
+        if (rl == 1 && rn->name[0] == '/') {
+            if (path[0] != '/') continue;
+            pos = 1;
+        } else {
+            if (len < rl || memcmp(path, rn->name, rl) != 0) continue;
+            if (len == rl) { *exact = true; return r; }
+            if (path[rl] != '/') continue;
+            pos = rl + 1;
+        }
+        uint32_t cur = r;
+        while (pos < len) {
+            size_t end = pos;
+            while (end < len && path[end] != '/') end++;
+            size_t cl = end - pos;
+            if (cl > 0) {
+                uint32_t next = SM_NONE;
+                for (uint32_t c = sm_tree_node(t, cur)->first_child; c != SM_NONE; c = sm_tree_node(t, c)->next_sibling) {
+                    const sm_node *cn = sm_tree_node(t, c);
+                    if (cn->name_len == cl && memcmp(cn->name, path + pos, cl) == 0) { next = c; break; }
+                }
+                if (next == SM_NONE) return cur;
+                cur = next;
+            }
+            pos = end + 1;
+        }
+        *exact = true;
+        return cur;
+    }
+    return SM_NONE;
+}
+
+void sm_tree_set_events(sm_tree *t, uint64_t event_id, const uint8_t uuid[16]) {
+    t->stats.event_id = event_id;
+    if (uuid) memcpy(t->stats.events_uuid, uuid, 16);
+}
+
+void sm_tree_touch(sm_tree *t) { t->stats.created_at = (double)time(NULL); }

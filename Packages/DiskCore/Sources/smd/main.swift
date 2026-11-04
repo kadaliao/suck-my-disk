@@ -56,7 +56,7 @@ func fmtCount(_ n: UInt64) -> String {
 }
 
 func scanWithProgress(_ roots: [String], threads: Int = 0) -> ScanTree? {
-    var o = ScanOptions()
+    var o = ScanOptions.respectingPrivacy()
     o.threads = threads
     let start = Date()
     let isTTY = isatty(STDERR_FILENO) != 0
@@ -71,8 +71,11 @@ func scanWithProgress(_ roots: [String], threads: Int = 0) -> ScanTree? {
 }
 
 func fullScan() -> ScanTree? {
+    // Events from here on are replayed next time, so changes made during the scan are not lost.
+    let startID = DiskWatcher.currentEventID
     let tree = scanWithProgress([Firmlinks.dataRoot])
     if let tree {
+        LiveIndex.stamp(tree, startedAt: startID)
         let s = tree.stats
         err(L("扫描完成：\(fmtCount(s.files)) 个文件，\(fmtCount(s.dirs)) 个目录，\(String(format: "%.1f", s.scan_seconds)) 秒",
               "Scanned \(fmtCount(s.files)) files, \(fmtCount(s.dirs)) folders in \(String(format: "%.1f", s.scan_seconds))s"))
@@ -86,10 +89,30 @@ func fullScan() -> ScanTree? {
     return tree
 }
 
-/// Loads the saved index if it is recent enough, otherwise scans.
+func ageText(_ seconds: TimeInterval) -> String {
+    let m = Int(seconds / 60)
+    if m < 60 { return L("\(m) 分钟前", "\(m) min ago") }
+    if m < 48 * 60 { return L("\(m / 60) 小时前", "\(m / 60) h ago") }
+    return L("\(m / 1440) 天前", "\(m / 1440) days ago")
+}
+
+/// Loads the saved index and brings it up to date from FSEvents; scans if that is not possible.
 func loadTree(maxAge: TimeInterval = 3600, rescan: Bool = false) -> ScanTree? {
     if !rescan, let t = try? ScanTree.load(from: indexURL) {
         let age = Date().timeIntervalSince1970 - t.stats.created_at
+        if LiveIndex.canResume(t) {
+            let start = Date()
+            switch LiveIndex.catchUp(t) {
+            case .current(let changed):
+                err(L("索引（\(ageText(age))）已按文件系统事件更新 \(changed) 处，用时 \(String(format: "%.1f", Date().timeIntervalSince(start))) 秒",
+                      "Index from \(ageText(age)) caught up with \(changed) changes in \(String(format: "%.1f", Date().timeIntervalSince(start)))s"))
+                try? t.save(to: indexURL)
+                return t
+            case .needsRescan(let why):
+                err(L("索引没法增量更新（\(why)），重新扫描", "Cannot update the index incrementally (\(why)); rescanning"))
+                return fullScan()
+            }
+        }
         if age < maxAge {
             err(L("使用 \(Int(age / 60)) 分钟前的索引（--rescan 重新扫描）", "Using the index from \(Int(age / 60)) min ago (--rescan to refresh)"))
             return t
@@ -168,7 +191,7 @@ func printReport(_ report: Report, verbose: Bool) {
 func makeReport(rescan: Bool) async -> Report? {
     guard let tree = loadTree(rescan: rescan) else { return nil }
     let days = Int(args.values["days"] ?? "") ?? 30
-    let report = await Recognize.all(tree: tree, sleepAfterDays: days) { err($0) }
+    let report = await Recognize.all(tree: tree, sleepAfterDays: days, skip: Privacy.rootsToSkip()) { err($0) }
     ReportStore.save(report)
     ReportStore.writeHistory(report)
     return report
@@ -216,7 +239,7 @@ func runPlan(_ items: [ReclaimItem], execute: Bool) {
     print("")
     print(L("完成 \(done)/\(items.count) 项，可用空间 \(Fmt.bytes(before)) → \(Fmt.bytes(after))（+\(Fmt.bytes(after > before ? after - before : 0))）",
             "Done \(done)/\(items.count). Free space \(Fmt.bytes(before)) → \(Fmt.bytes(after)) (+\(Fmt.bytes(after > before ? after - before : 0)))"))
-    ReportStore.invalidate()
+    ReportStore.invalidate()   // the index catches up from FSEvents next time
 }
 
 // MARK: commands

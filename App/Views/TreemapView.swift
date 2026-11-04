@@ -16,10 +16,11 @@ struct TMRect: Identifiable {
 
 struct TreemapView: View {
     @Environment(AppModel.self) private var model
+    /// Drill-down as raw paths: node ids can go away when the disk changes.
+    @State private var stackPaths: [String] = []
     @State private var stack: [NodeID] = []
     @State private var rects: [TMRect] = []
     @State private var hovered: TMRect?
-    @State private var lastSize: CGSize = .zero
 
     var body: some View {
         Group {
@@ -32,17 +33,15 @@ struct TreemapView: View {
                         canvas
                             .onAppear { relayout(tree, geo.size) }
                             .onChange(of: geo.size) { _, s in relayout(tree, s) }
-                            .onChange(of: stack) { _, _ in relayout(tree, geo.size) }
+                            .onChange(of: stackPaths) { _, _ in relayout(tree, geo.size) }
+                            .onChange(of: model.treeRevision) { _, _ in relayout(tree, geo.size) }
                     }
                     .padding(.horizontal, 16)
                     infoBar(tree)
                 }
-                .onAppear {
-                    if stack.isEmpty {
-                        let home = tree.find(NSHomeDirectory())
-                        stack = home.map { pathTo($0, tree) } ?? tree.children(ScanTree.root)
-                    }
-                }
+                .onAppear { resolveStack(tree) }
+                // A full rescan brings a new tree whose node ids mean nothing to the old state.
+                .id(ObjectIdentifier(tree))
             } else {
                 ContentUnavailableView {
                     Label(L("索引需要更新", "The index needs a refresh"), systemImage: "square.grid.3x3.square")
@@ -89,15 +88,26 @@ struct TreemapView: View {
             }
         }
         .onTapGesture(count: 1, coordinateSpace: .local) { p in
-            if let r = rects.last(where: { $0.rect.contains(p) && $0.drillable }) {
-                withAnimation(.snappy) { stack = stackFor(r.id) }
+            if let r = rects.last(where: { $0.rect.contains(p) && $0.drillable }), let tree = model.tree {
+                withAnimation(.snappy) { stackPaths = pathTo(r.id, tree).map { tree.rawPath($0) } }
             }
         }
     }
 
-    private func stackFor(_ node: NodeID) -> [NodeID] {
-        guard let tree = model.tree else { return stack }
-        return pathTo(node, tree)
+    /// Maps the path stack onto the current tree, dropping folders that no longer exist.
+    private func resolveStack(_ tree: ScanTree) {
+        var out: [NodeID] = []
+        for p in stackPaths {
+            guard let hit = tree.nearest(p), hit.exact, tree.isDir(hit.node) else { break }
+            out.append(hit.node)
+        }
+        if out.isEmpty {
+            out = tree.find(NSHomeDirectory()).map { pathTo($0, tree) } ?? tree.children(ScanTree.root)
+            stackPaths = out.map { tree.rawPath($0) }
+        } else if out.count < stackPaths.count {
+            stackPaths = Array(stackPaths.prefix(out.count))
+        }
+        stack = out
     }
 
     private func breadcrumb(_ tree: ScanTree) -> some View {
@@ -105,7 +115,7 @@ struct TreemapView: View {
             ForEach(Array(stack.enumerated()), id: \.offset) { i, n in
                 if i > 0 { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary) }
                 Button(i == 0 ? L("磁盘", "Disk") : tree.name(n)) {
-                    withAnimation(.snappy) { stack = Array(stack.prefix(i + 1)) }
+                    withAnimation(.snappy) { stackPaths = Array(stackPaths.prefix(i + 1)) }
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(i == stack.count - 1 ? .primary : .secondary)
@@ -138,6 +148,8 @@ struct TreemapView: View {
     // MARK: layout
 
     private func relayout(_ tree: ScanTree, _ size: CGSize) {
+        resolveStack(tree)
+        if let h = hovered, tree.isDetached(h.id) { hovered = nil }
         guard let top = stack.last, size.width > 10, size.height > 10 else { return }
         let kinds = kindMap(tree)
         var out: [TMRect] = []
