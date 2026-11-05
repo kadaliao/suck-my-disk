@@ -1,0 +1,64 @@
+name: Bug report / 问题反馈
+description: Something doesn't work, or a number looks wrong. / 有功能不正常，或者数字看起来不对。
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If SuckMyDisk deleted or trashed something it shouldn't have, please don't file a public issue: use **Security → Report a vulnerability** instead (see SECURITY.md).
+        如果 SuckMyDisk 删掉或扔掉了不该动的东西，请不要发公开 issue，改用 **Security → Report a vulnerability** 私下报告（见 SECURITY.md）。
+  - type: input
+    id: version
+    attributes:
+      label: SuckMyDisk version / 版本
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version / macOS 版本
+      placeholder: "26.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where / 在哪里出现
+      options:
+        - App
+        - smd (command line / 命令行)
+        - Both / 两者都有
+    validations:
+      required: true
+  - type: dropdown
+    id: fda
+    attributes:
+      label: Full Disk Access / 完全磁盘访问
+      options:
+        - Granted / 已开启
+        - Not granted / 未开启
+        - Not sure / 不确定
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened / 发生了什么
+      description: Screenshots help. / 有截图更好。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected / 你期望的结果
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现步骤
+  - type: textarea
+    id: output
+    attributes:
+      label: Output / 输出
+      description: |
+        Relevant lines from `smd things`, `smd journal` or `smd top`. Edit out paths you don't want to share.
+        `smd things`、`smd journal` 或 `smd top` 中相关的几行。不想公开的路径可以抹掉。
+      render: text

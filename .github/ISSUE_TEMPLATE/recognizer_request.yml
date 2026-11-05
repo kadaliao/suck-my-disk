@@ -1,0 +1,32 @@
+name: Recognizer request / 识别请求
+description: A tool, cache, model store or app whose space SuckMyDisk doesn't explain yet. / SuckMyDisk 还认不出的工具、缓存、模型或应用数据。
+labels: [enhancement]
+body:
+  - type: input
+    id: name
+    attributes:
+      label: Tool or app / 工具或应用
+      placeholder: "Go build cache, ComfyUI models, …"
+    validations:
+      required: true
+  - type: textarea
+    id: paths
+    attributes:
+      label: Where it keeps its data / 数据放在哪里
+      description: Paths, and how big they get for you. / 路径，以及在你电脑上有多大。
+      placeholder: "~/Library/Caches/go-build  (35 GB)"
+    validations:
+      required: true
+  - type: textarea
+    id: cleanup
+    attributes:
+      label: How to clean it / 怎么清理
+      description: Does the tool have its own cleanup command? / 工具有没有自带的清理命令？
+      placeholder: "go clean -cache"
+  - type: textarea
+    id: restore
+    attributes:
+      label: How to get it back, and what breaks if it's gone / 怎么恢复，删了会影响什么
+      description: Is it re-downloaded or rebuilt on its own? Is any of it irreplaceable? / 会自动重新下载或重建吗？有没有删了就找不回的部分？
+    validations:
+      required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: SuckMyDisk deleted something it shouldn't have / 误删了不该删的东西
+    url: https://github.com/kadaliao/suck-my-disk/security/advisories/new
+    about: Report data loss and safety problems privately. / 数据丢失和安全问题请私下报告。
+  - name: User guide / 使用指南
+    url: https://github.com/kadaliao/suck-my-disk/blob/master/docs/user-guide.md
+    about: How each screen and command works, plus FAQ. / 每个界面和命令怎么用，以及常见问题。
