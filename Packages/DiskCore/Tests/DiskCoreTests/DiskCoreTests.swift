@@ -272,4 +272,16 @@ final class Fixture {
         #expect(Executor(store: nil, force: false, log: { _ in }).run([item])[0].status == .skipped)
         #expect(FileManager.default.fileExists(atPath: f.path("p/node_modules")))
     }
+
+    /// npm is `#!/usr/bin/env node`; launched from Finder, the app's PATH has no node.
+    @Test func scriptsFindTheInterpreterNextToThem() throws {
+        let f = try Fixture()
+        let interp = try f.file("bin/smd-fake-node", text: "#!/bin/sh\necho interpreter-ran\n")
+        let tool = try f.file("bin/tool", text: "#!/usr/bin/env smd-fake-node\n")
+        for p in [interp, tool] { chmod(p, 0o755) }
+        #expect(!Shell.searchDirs.contains(f.path("bin")))
+        let r = Shell.run([tool])
+        #expect(r.ok, "\(r.stderr)")
+        #expect(r.stdout.contains("interpreter-ran"))
+    }
 }

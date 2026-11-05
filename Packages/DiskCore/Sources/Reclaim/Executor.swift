@@ -90,7 +90,7 @@ public final class Executor {
         case .command(let argv, let cwd):
             log("  $ " + argv.joined(separator: " "))
             let r = Shell.run(argv, cwd: cwd, timeout: 3600, stream: true)
-            return r.ok ? nil : "exit \(r.status): \(r.stderr.suffix(400))"
+            return r.ok ? nil : "exit \(r.status): \(r.stderr.suffix(400).trimmingCharacters(in: .whitespacesAndNewlines))"
         case .compound(let acts):
             for x in acts { if let e = perform(x) { return e } }
             return nil

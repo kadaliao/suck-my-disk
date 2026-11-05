@@ -8,18 +8,32 @@ public struct ShellResult: Sendable {
 }
 
 public enum Shell {
-    /// Finds an executable on PATH plus the usual Homebrew / user locations.
-    public static func which(_ name: String) -> String? {
-        if name.hasPrefix("/") { return FileManager.default.isExecutableFile(atPath: name) ? name : nil }
+    /// PATH plus the usual Homebrew / user locations, without duplicates.
+    static var searchDirs: [String] {
         let env = ProcessInfo.processInfo.environment["PATH"] ?? ""
         let home = NSHomeDirectory()
         let extra = ["/opt/homebrew/bin", "/usr/local/bin", "\(home)/.local/bin", "\(home)/.cargo/bin",
-                     "\(home)/.bun/bin", "/usr/bin", "/bin"]
-        for dir in env.split(separator: ":").map(String.init) + extra {
+                     "\(home)/.bun/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        var seen = Set<String>()
+        return (env.split(separator: ":").map(String.init) + extra).filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    /// Finds an executable on PATH plus the usual Homebrew / user locations.
+    public static func which(_ name: String) -> String? {
+        if name.hasPrefix("/") { return FileManager.default.isExecutableFile(atPath: name) ? name : nil }
+        for dir in searchDirs {
             let p = (dir as NSString).appendingPathComponent(name)
             if FileManager.default.isExecutableFile(atPath: p) { return p }
         }
         return nil
+    }
+
+    /// PATH for a child process. An app opened from Finder only has /usr/bin:/bin:…,
+    /// so a script such as npm (`#!/usr/bin/env node`) could not find its interpreter.
+    /// The tool's own folder goes first: that is where its node, python… usually live.
+    static func childPATH(for exe: String) -> String {
+        let own = (exe as NSString).deletingLastPathComponent
+        return ([own] + searchDirs.filter { $0 != own }).joined(separator: ":")
     }
 
     /// Runs a command and captures output. Kills it after `timeout` seconds.
@@ -32,6 +46,9 @@ public enum Shell {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: exe)
         p.arguments = Array(argv.dropFirst())
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = childPATH(for: exe)
+        p.environment = env
         if let cwd { p.currentDirectoryURL = URL(fileURLWithPath: cwd) }
         let out = Pipe(), err = Pipe()
         p.standardOutput = out

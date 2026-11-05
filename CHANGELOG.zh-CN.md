@@ -6,6 +6,11 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+### 修复
+
+- 本身是 Node 脚本的工具（npm、Yarn、pnpm）在 App 里运行都会失败（`env: node: No such file or directory`）：npm 缓存怎么清都还在，pnpm store 也一直识别不到。从访达打开的 App，PATH 里只有 `/usr/bin:/bin`；现在运行命令时会带上工具自己所在的目录，以及 Homebrew 和用户目录里的常见位置。
+- 有项目没清掉时，结果窗口仍然显示绿色对勾。现在失败的会用橙色标出，并和跳过的分开列。
+
 ## [0.3.0] - 2026-11-05
 
 需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。索引格式没变，升级后不用重新扫描。

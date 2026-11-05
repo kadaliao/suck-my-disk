@@ -288,24 +288,37 @@ struct ResultSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        let failed = !result.failed.isEmpty
         VStack(spacing: 14) {
-            Image(systemName: "checkmark.circle.fill")
+            Image(systemName: failed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .font(.system(size: 44))
-                .foregroundStyle(.green)
+                .foregroundStyle(failed ? .orange : .green)
             Text(L("腾出了", "Freed")).foregroundStyle(.secondary)
             BigNumber(bytes: result.freed, size: 48)
-            Text(L("完成 \(result.done) 项", "\(result.done) items done")).foregroundStyle(.secondary)
-            if !result.skipped.isEmpty || !result.failed.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array((result.skipped + result.failed).enumerated()), id: \.offset) { _, x in
-                        Text("· \(x.0)：\(x.1)").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
+            Text(summary).foregroundStyle(.secondary)
+            if failed { list(L("没清掉", "Failed"), result.failed, .orange) }
+            if !result.skipped.isEmpty { list(L("跳过", "Skipped"), result.skipped, .secondary) }
             Button(L("好", "Done")) { dismiss() }.keyboardShortcut(.defaultAction).padding(.top, 6)
         }
         .padding(28)
-        .frame(width: 360)
+        .frame(width: 400)
+    }
+
+    private var summary: String {
+        var parts = [L("完成 \(result.done) 项", "\(result.done) done")]
+        if !result.failed.isEmpty { parts.append(L("\(result.failed.count) 项没清掉", "\(result.failed.count) failed")) }
+        if !result.skipped.isEmpty { parts.append(L("\(result.skipped.count) 项跳过", "\(result.skipped.count) skipped")) }
+        return parts.joined(separator: L("，", ", "))
+    }
+
+    private func list(_ title: String, _ rows: [(String, String)], _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(color)
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, x in
+                Text(x.0 + L("：", ": ") + x.1).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

@@ -8,6 +8,16 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Tools that are Node scripts (npm, Yarn, pnpm) failed in the app with
+  `env: node: No such file or directory`: cleaning the npm cache never worked,
+  so it kept coming back, and the pnpm store was never found. An app opened
+  from Finder only has `/usr/bin:/bin` on its PATH; commands now also get the
+  tool's own folder and the usual Homebrew and user locations.
+- The result sheet showed a green check even when items failed. Failures are
+  now marked in orange and listed apart from skipped items.
+
 ## [0.3.0] - 2026-11-05
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and
