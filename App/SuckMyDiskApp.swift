@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
             guard let model = Self.model else { return }
-            model.start()
+            if CommandLine.arguments.contains("--demo") { model.startDemo() } else { model.start() }
             Snapshotter.runIfRequested(model)
         }
     }
@@ -26,8 +26,8 @@ struct SuckMyDiskApp: App {
     @State private var model: AppModel
 
     init() {
-        // Screenshot runs never read folders macOS would ask about.
-        if CommandLine.arguments.contains("--snapshot") { Privacy.alwaysSkip = true }
+        // Screenshot and demo runs never read folders macOS would ask about.
+        if CommandLine.arguments.contains("--snapshot") || CommandLine.arguments.contains("--demo") { Privacy.alwaysSkip = true }
         let m = AppModel()
         _model = State(initialValue: m)
         AppDelegate.model = m

@@ -195,6 +195,10 @@ typedef struct sm_listing {
 int sm_list_dir(const char *path, uint32_t dev, sm_listing *out);
 void sm_listing_free(sm_listing *l);
 
+// An empty tree with these scan roots, without reading the disk. Fill it in with
+// sm_tree_apply_listing (demo data and tests).
+sm_tree *sm_tree_create(const char *const *roots, int nroots);
+
 // Makes directory node `node` match `l`. For subdirectory i, src_nodes[i] is a node in
 // `src` holding a fresh scan of it, or SM_NONE to keep the existing child of that name
 // when its inode still matches. Ancestor totals are updated.

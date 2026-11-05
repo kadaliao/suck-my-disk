@@ -1281,6 +1281,29 @@ static void link_child(sm_tree *t, uint32_t parent, uint32_t c) {
     p->first_child = c;
 }
 
+sm_tree *sm_tree_create(const char *const *roots, int nroots) {
+    sm_tree *t = tree_new();
+    if (!t) return NULL;
+    uint32_t root = tree_alloc_node(t);
+    sm_node *r = sm_tree_node(t, root);
+    r->parent = SM_NONE;
+    r->flags = SM_F_DIR;
+    r->name = "";
+    r->name_len = 0;
+    for (int i = 0; i < nroots; i++) {
+        size_t l = strlen(roots[i]);
+        while (l > 1 && roots[i][l - 1] == '/') l--;
+        uint32_t ci = tree_alloc_node(t);
+        sm_node *c = sm_tree_node(t, ci);
+        c->flags = SM_F_DIR;
+        c->name = tree_put_name(t, roots[i], l);
+        c->name_len = (uint32_t)l;
+        link_child(t, root, ci);
+    }
+    t->stats.created_at = (double)time(NULL);
+    return t;
+}
+
 // Copies src node `s` and its subtree into t, named `name`, with parent `parent`.
 // The copy itself is not linked into the parent's child list.
 static uint32_t graft(sm_tree *t, uint32_t parent, const sm_tree *src, uint32_t s, const char *name, uint32_t name_len) {

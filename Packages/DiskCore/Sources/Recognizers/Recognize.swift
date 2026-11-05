@@ -9,6 +9,14 @@ public struct Report: Codable, Sendable {
     public var scanned: UInt64
     public var things: [Thing]
 
+    public init(createdAt: Date, volumeTotal: UInt64, volumeFree: UInt64, scanned: UInt64, things: [Thing]) {
+        self.createdAt = createdAt
+        self.volumeTotal = volumeTotal
+        self.volumeFree = volumeFree
+        self.scanned = scanned
+        self.things = things
+    }
+
     public var preselected: UInt64 {
         Planner.plan(things: things, selected: nil).freed
     }

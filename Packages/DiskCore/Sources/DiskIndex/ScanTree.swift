@@ -202,6 +202,71 @@ public final class ScanTree: @unchecked Sendable {
         return ScanTree(raw: out)
     }
 
+    // MARK: synthetic trees
+
+    /// A tree made from folder sizes instead of a scan; nothing is read from disk.
+    /// Used for the app's demo mode and for tests.
+    ///
+    /// `folders` maps absolute paths inside `root` to the bytes held directly in each
+    /// folder; missing parent folders are created. Folders in `folded` are one block,
+    /// like `node_modules` in a real scan.
+    public static func synthetic(root: String, folders: [String: UInt64], folded: Set<String> = [],
+                                 modified: Date = Date()) -> ScanTree? {
+        let root = (root as NSString).standardizingPath
+        var own: [String: UInt64] = [root: 0]
+        var kids: [String: Set<String>] = [:]
+        for (path, bytes) in folders {
+            var p = (path as NSString).standardizingPath
+            guard p.hasPrefix(root + "/") else { continue }
+            own[p, default: 0] += bytes
+            while p != root {
+                let parent = (p as NSString).deletingLastPathComponent
+                kids[parent, default: []].insert((p as NSString).lastPathComponent)
+                if own[parent] == nil { own[parent] = 0 }
+                p = parent
+            }
+        }
+        guard let raw = root.withCString({ r -> OpaquePointer? in
+            var roots: [UnsafePointer<CChar>?] = [r]
+            return sm_tree_create(&roots, 1)
+        }) else { return nil }
+        let tree = ScanTree(raw: raw)
+        let mtime = Int64(modified.timeIntervalSince1970)
+        var ino: UInt64 = 1
+        var queue = [root]
+        while let dir = queue.popLast() {
+            guard let hit = tree.nearest(dir), hit.exact else { continue }
+            let names = (kids[dir] ?? []).sorted()
+            let cnames = names.map { strdup($0)! }
+            defer { cnames.forEach { free($0) } }
+            var subs = zip(names, cnames).map { name, c in
+                ino += 1
+                var e = sm_entry()
+                e.name = UnsafePointer(c)
+                e.name_len = UInt32(name.utf8.count)
+                e.flags = UInt32(SM_F_DIR) | (folded.contains(dir + "/" + name) ? SM_F_COLLAPSED : 0)
+                e.ino = ino
+                e.mtime = mtime
+                return e
+            }
+            let bytes = own[dir] ?? 0
+            var l = sm_listing()
+            l.ino = ino
+            l.self_mtime = mtime
+            l.alloc = bytes
+            l.logical = bytes
+            l.nfiles = bytes > 0 ? 1 : 0
+            l.mtime = mtime
+            subs.withUnsafeMutableBufferPointer { b in
+                l.subs = b.baseAddress
+                l.nsubs = b.count
+                sm_tree_apply_listing(raw, hit.node, &l, nil, nil)
+            }
+            queue += names.map { dir + "/" + $0 }
+        }
+        return tree
+    }
+
     // MARK: scanning
 
     /// Blocking scan. `progress` is called roughly every 100 ms from a helper thread.

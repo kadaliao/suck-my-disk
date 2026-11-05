@@ -121,6 +121,23 @@ final class Fixture {
         #expect(u.find(f.path("x/y/z.bin")) != nil)
     }
 
+    @Test func syntheticTreeFromFolderSizes() throws {
+        let root = "/nonexistent/smd-demo"
+        let t = try #require(ScanTree.synthetic(
+            root: root,
+            folders: [root + "/code/app/node_modules": 300, root + "/code/app": 50, root + "/Movies": 1000],
+            folded: [root + "/code/app/node_modules"]))
+        let app = try #require(t.find(root + "/code/app"))
+        let nm = try #require(t.find(root + "/code/app/node_modules"))
+        #expect(t.size(app) == 350)
+        #expect(t.size(try #require(t.find(root))) == 1350)
+        #expect(t.uniqueTotal == 1350)
+        #expect(t.has(nm, flag: SM_F_COLLAPSED))
+        #expect(!t.has(app, flag: SM_F_COLLAPSED))
+        #expect(t.path(nm) == root + "/code/app/node_modules")
+        #expect(t.sortedChildren(try #require(t.find(root))).map { t.name($0) } == ["Movies", "code"])
+    }
+
     @Test func firmlinkPaths() {
         #expect(Firmlinks.userPath("/System/Volumes/Data/Users/a/b") == "/Users/a/b")
         #expect(Firmlinks.dataPath("/Users/a/b") == "/System/Volumes/Data/Users/a/b")

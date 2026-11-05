@@ -50,6 +50,12 @@ public enum ReportStore {
         public var day: String
         public var kind: String
         public var bytes: UInt64
+
+        public init(day: String, kind: String, bytes: UInt64) {
+            self.day = day
+            self.kind = kind
+            self.bytes = bytes
+        }
     }
 
     /// Bytes per kind per day, plus a "free" series.

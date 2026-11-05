@@ -109,6 +109,8 @@ final class AppModel {
     var refreshing = false
     /// When the index last changed because files changed.
     var lastChange: Date?
+    /// `--demo`: made-up data; nothing is read from or written to the disk.
+    @ObservationIgnored private(set) var demo: DemoData?
 
     /// The last recognition result, as it was; `report` is derived from it.
     @ObservationIgnored private var baseReport: Report?
@@ -170,7 +172,25 @@ final class AppModel {
         }
     }
 
+    /// Shows made-up data instead of the disk. Rescans, saving and Clean Up are off.
+    func startDemo() {
+        let d = DemoData.make()
+        demo = d
+        volume = d.volume
+        tree = d.tree
+        history = d.history
+        hasFullDiskAccess = true
+        setReport(d.report, tree: d.tree)
+        liveState = .live
+        phase = .idle
+    }
+
     func measureFolders() {
+        if let demo {
+            userFiles = demo.userFiles
+            applications = demo.applications
+            return
+        }
         guard let tree else { return }
         let h = NSHomeDirectory()
         let dirs = ["Documents", "Desktop", "Downloads", "Pictures", "Movies", "Music"].map { h + "/" + $0 }
@@ -191,6 +211,7 @@ final class AppModel {
     }
 
     func rescan() async {
+        guard demo == nil else { return }
         await stopLive()
         scanStarted = Date()
         phase = .scanning(files: 0, bytes: 0)
@@ -438,7 +459,7 @@ final class AppModel {
 
     /// Called when the app quits: the next launch catches up from here.
     func saveNow() {
-        guard let tree, liveState != .off else { return }
+        guard demo == nil, let tree, liveState != .off else { return }
         try? ReportStore.saveIndex(tree)
         dirty = false
     }
@@ -466,6 +487,8 @@ final class AppModel {
     func clean() async {
         let items = plan.items
         guard !items.isEmpty else { return }
+        // Demo items point at made-up paths and real tools: never hand them to the executor.
+        if demo != nil { return cleanDemo(items) }
         let before = VolumeInfo.freeBytes()
         var done = 0
         var skipped: [(String, String)] = []
@@ -499,6 +522,21 @@ final class AppModel {
         lastResult = CleanResult(done: done, skipped: skipped, failed: failed, freed: after > before ? after - before : 0)
         phase = .idle
         wake?.yield()
+    }
+}
+
+extension AppModel {
+    /// Clean Up in demo mode: the items leave the lists and free space grows; nothing runs.
+    private func cleanDemo(_ items: [ReclaimItem]) {
+        let ids = Set(items.map(\.id)).union(items.flatMap(\.covers))
+        guard var r = report else { return }
+        for t in r.things.indices { r.things[t].items.removeAll { ids.contains($0.id) } }
+        r.things.removeAll { $0.items.isEmpty && $0.kind != .system && $0.kind != .appData }
+        setReport(r, tree: tree)
+        selection.subtract(ids)
+        let freed = items.reduce(UInt64(0)) { $0 + $1.estimate }
+        withAnimation(.spring(duration: 0.8)) { volume.free += freed }
+        lastResult = CleanResult(done: items.count, skipped: [], failed: [], freed: freed)
     }
 }
 
