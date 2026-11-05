@@ -6,6 +6,10 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.4.0] - 2026-11-05
+
+需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。索引格式没变，升级后不用重新扫描。
+
 ### 新增
 
 - **外接磁盘。** 每块接着的磁盘（USB 或雷雳硬盘、SD 卡、可写的磁盘映像）在侧边栏占一行，有自己的页面：盘上的项目和渲染帧、方块图，以及只处理这块盘、按这块盘实测腾出空间的「清理」。插上时、重新扫描时和清理之后各扫描一次，不做实时跟踪，其间显示上一次的结果。没有完全磁盘访问时，只在你点「扫描」时才扫。
@@ -76,7 +80,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.3.1...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.1.0...v0.2.0
