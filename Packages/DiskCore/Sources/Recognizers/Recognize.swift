@@ -49,6 +49,37 @@ public enum Recognize {
                       scanned: tree.uniqueTotal, things: all)
     }
 
+    /// The recognizers that make sense on an external disk: projects and render frames.
+    /// Caches, models and app data live in the home folder and stay on the startup disk.
+    /// The disk's top-level hidden folders (.Trashes, .Spotlight-V100, and dot folders
+    /// moved off the home folder such as .vscode-server) are left out, as in the home folder.
+    public static func external(tree: ScanTree, volume: ExternalVolume, sleepAfterDays: Int = 30,
+                                log: @escaping (String) -> Void = { _ in }) async -> Report {
+        log(L("读取活跃度信号（Claude Code、Codex、shell 历史）…", "Reading activity signals (Claude Code, Codex, shell history)…"))
+        var ctx = RecognizeContext(tree: tree, activity: ActivityIndex(), sleepAfterDays: sleepAfterDays)
+        ctx.allowAnyPath = true
+        if let root = tree.find(volume.path) {
+            ctx.offLimits = tree.children(root).filter { tree.name($0).hasPrefix(".") }.map { tree.path($0) }
+        }
+        log(L("识别项目…", "Finding projects…"))
+        let (projects, _) = ProjectRecognizer.recognize(ctx)
+        log(L("识别渲染帧…", "Finding render frames…"))
+        var media = await FrameSequenceRecognizer.recognize(ctx)
+        // Moving to the Trash on this disk frees nothing until the Trash is emptied.
+        for t in media.indices {
+            for i in media[t].items.indices {
+                guard case .trash = media[t].items[i].action else { continue }
+                media[t].items[i].warnings.append(L("会移到这块盘的废纸篓，清倒废纸篓后才腾出空间",
+                                                    "goes to this disk's Trash; space is freed when the Trash is emptied"))
+            }
+        }
+        var all = projects + media
+        log(L("精确计算含共享数据的大项…", "Measuring items that share data…"))
+        refineShared(&all, offLimits: ctx.offLimits)
+        let v = VolumeInfo.of(volume.path)
+        return Report(createdAt: Date(), volumeTotal: v.total, volumeFree: v.free, scanned: tree.uniqueTotal, things: all)
+    }
+
     /// Items whose data is partly shared (clones / hard links) get an exact
     /// "what deleting this alone frees" by scanning just that item.
     static func refineShared(_ things: inout [Thing], offLimits: [String] = []) {

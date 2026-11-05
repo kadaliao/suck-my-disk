@@ -44,6 +44,13 @@ enum Section: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+/// What the window shows: a section about the startup disk, or an external disk.
+enum Page: Hashable {
+    case section(Section)
+    /// An external disk, by volume UUID.
+    case disk(String)
+}
+
 extension ThingKind {
     var color: Color {
         switch self {
@@ -93,7 +100,18 @@ final class AppModel {
     var volume = VolumeInfo.of()
     var selection: Set<String> = []
     var phase: Phase = .idle
-    var section: Section = .overview
+    var page: Page = .section(.overview)
+    /// The startup-disk section on screen; setting it shows that section.
+    var section: Section {
+        get { if case .section(let s) = page { return s } else { return .overview } }
+        set { page = .section(newValue) }
+    }
+    /// Mounted external disks, each with its own scan and findings.
+    var externals: [ExternalDisk] = []
+    /// The disk Clean Up is about to work on; nil is the startup disk.
+    var cleanDisk: ExternalDisk?
+    /// External disk pages show the map instead of the list.
+    var showDiskMap = false
     var lastResult: CleanResult?
     var history: [ReportStore.DayPoint] = []
     /// Documents, Downloads, Pictures… minus the things already counted inside them.
@@ -117,8 +135,8 @@ final class AppModel {
     /// Index sizes of each item / thing path when `baseReport` was made.
     @ObservationIgnored private var baseline: [String: UInt64] = [:]
     /// Boxes the user ticked or unticked themselves; kept across refreshes.
-    @ObservationIgnored private var userOn: Set<String> = []
-    @ObservationIgnored private var userOff: Set<String> = []
+    @ObservationIgnored var userOn: Set<String> = []
+    @ObservationIgnored var userOff: Set<String> = []
     @ObservationIgnored private var cleaned: (at: Date, ids: Set<String>)?
 
     @ObservationIgnored private var live: LiveIndex?
@@ -138,6 +156,33 @@ final class AppModel {
     }
 
     var plan: Planner.Plan { Planner.plan(things: things, selected: selection) }
+
+    func plan(for disk: ExternalDisk) -> Planner.Plan { Planner.plan(things: disk.things, selected: selection) }
+
+    /// What the Clean Up sheet shows and runs.
+    var cleanPlan: Planner.Plan { cleanDisk.map(plan(for:)) ?? plan }
+
+    func confirmCleanUp(_ disk: ExternalDisk? = nil) {
+        cleanDisk = disk
+        confirming = true
+    }
+
+    var currentDisk: ExternalDisk? {
+        guard case .disk(let id) = page else { return nil }
+        return externals.first { $0.id == id }
+    }
+
+    /// The toolbar's Rescan: the disk on screen.
+    func rescanCurrent() async {
+        if let d = currentDisk { await scan(d, interactive: true) } else { await rescan() }
+    }
+
+    /// Ticks: what the recognizers preselected plus the user's own choices, on every disk.
+    func resetSelection() {
+        let items = ((baseReport?.things ?? []) + externals.flatMap(\.things)).flatMap(\.items)
+        let pre = Set(items.filter(\.preselected).map(\.id))
+        selection = pre.union(userOn).subtracting(userOff).intersection(Set(items.map(\.id)))
+    }
 
     func selectedBytes(_ kind: ThingKind) -> UInt64 {
         Planner.plan(things: things(kind), selected: selection).freed
@@ -170,6 +215,8 @@ final class AppModel {
             // Catch up on what changed while the app was closed; the loop recognizes afterwards.
             startLive(since: tree.eventID)
         }
+        // Screenshot runs never read other disks.
+        if !Privacy.alwaysSkip { watchExternalDisks() }
     }
 
     /// Shows made-up data instead of the disk. Rescans, saving and Clean Up are off.
@@ -180,6 +227,10 @@ final class AppModel {
         tree = d.tree
         history = d.history
         hasFullDiskAccess = true
+        let disk = ExternalDisk(d.external.volume)
+        disk.report = d.external.report
+        disk.tree = d.external.tree
+        externals = [disk]
         setReport(d.report, tree: d.tree)
         liveState = .live
         phase = .idle
@@ -282,9 +333,7 @@ final class AppModel {
             }
         }
         refreshDerived()
-        let ids = Set(r.things.flatMap(\.items).map(\.id))
-        let pre = Set(r.things.flatMap(\.items).filter(\.preselected).map(\.id))
-        selection = pre.union(userOn).subtracting(userOff).intersection(ids)
+        resetSelection()
     }
 
     /// Brings sizes up to date from the index without running the recognizers:
@@ -317,7 +366,7 @@ final class AppModel {
             r.scanned = tree.uniqueTotal
         }
         report = r
-        let ids = Set(r.things.flatMap(\.items).map(\.id))
+        let ids = Set((r.things + externals.flatMap(\.things)).flatMap(\.items).map(\.id))
         if !selection.isSubset(of: ids) { selection.formIntersection(ids) }
         measureFolders()
     }
@@ -418,6 +467,7 @@ final class AppModel {
             hasFullDiskAccess = true
             log.notice("Full Disk Access granted; rescanning")
             Task { await rescan() }
+            for d in externals { Task { await scan(d) } }
             return
         }
         let v = VolumeInfo.of()
@@ -485,11 +535,13 @@ final class AppModel {
     }
 
     func clean() async {
-        let items = plan.items
+        let disk = cleanDisk
+        let items = cleanPlan.items
         guard !items.isEmpty else { return }
         // Demo items point at made-up paths and real tools: never hand them to the executor.
-        if demo != nil { return cleanDemo(items) }
-        let before = VolumeInfo.freeBytes()
+        if demo != nil { return cleanDemo(items, disk: disk) }
+        let mount = disk?.volume.path ?? Firmlinks.dataRoot
+        let before = VolumeInfo.freeBytes(mount)
         var done = 0
         var skipped: [(String, String)] = []
         var failed: [(String, String)] = []
@@ -506,36 +558,47 @@ final class AppModel {
             case .failed: failed.append((item.label, outcome.message))
             }
         }
-        let after = VolumeInfo.freeBytes()
-        // Drop what is gone at once; the index itself follows from FSEvents.
-        cleaned = (Date(), doneIDs)
-        if var r = baseReport {
-            for t in r.things.indices { r.things[t].items.removeAll { doneIDs.contains($0.id) } }
-            r.things.removeAll { $0.items.isEmpty && $0.kind != .system && $0.kind != .appData }
-            baseReport = r
-            ReportStore.save(r)
-            refreshDerived()
+        let after = VolumeInfo.freeBytes(mount)
+        if let disk {
+            // External disks are not followed live: drop what is gone, then scan again for the map.
+            disk.drop(doneIDs, save: true)
+            if !doneIDs.isEmpty { Task { await scan(disk) } }
+        } else {
+            // Drop what is gone at once; the index itself follows from FSEvents.
+            cleaned = (Date(), doneIDs)
+            if var r = baseReport {
+                for t in r.things.indices { r.things[t].items.removeAll { doneIDs.contains($0.id) } }
+                r.things.removeAll { $0.items.isEmpty && $0.kind != .system && $0.kind != .appData }
+                baseReport = r
+                ReportStore.save(r)
+                refreshDerived()
+            }
+            withAnimation(.spring(duration: 0.8)) { volume = VolumeInfo.of() }
         }
         selection.subtract(doneIDs)
         userOn.subtract(doneIDs)
-        withAnimation(.spring(duration: 0.8)) { volume = VolumeInfo.of() }
         lastResult = CleanResult(done: done, skipped: skipped, failed: failed, freed: after > before ? after - before : 0)
         phase = .idle
-        wake?.yield()
+        if disk == nil { wake?.yield() }
     }
 }
 
 extension AppModel {
     /// Clean Up in demo mode: the items leave the lists and free space grows; nothing runs.
-    private func cleanDemo(_ items: [ReclaimItem]) {
+    private func cleanDemo(_ items: [ReclaimItem], disk: ExternalDisk?) {
         let ids = Set(items.map(\.id)).union(items.flatMap(\.covers))
-        guard var r = report else { return }
-        for t in r.things.indices { r.things[t].items.removeAll { ids.contains($0.id) } }
-        r.things.removeAll { $0.items.isEmpty && $0.kind != .system && $0.kind != .appData }
-        setReport(r, tree: tree)
-        selection.subtract(ids)
         let freed = items.reduce(UInt64(0)) { $0 + $1.estimate }
-        withAnimation(.spring(duration: 0.8)) { volume.free += freed }
+        if let disk {
+            disk.drop(ids, save: false)
+            withAnimation(.spring(duration: 0.8)) { disk.volume.free += freed }
+        } else {
+            guard var r = report else { return }
+            for t in r.things.indices { r.things[t].items.removeAll { ids.contains($0.id) } }
+            r.things.removeAll { $0.items.isEmpty && $0.kind != .system && $0.kind != .appData }
+            setReport(r, tree: tree)
+            withAnimation(.spring(duration: 0.8)) { volume.free += freed }
+        }
+        selection.subtract(ids)
         lastResult = CleanResult(done: items.count, skipped: [], failed: [], freed: freed)
     }
 }

@@ -190,9 +190,11 @@ struct FirstScanView: View {
 struct SelectionBar: View {
     @Environment(AppModel.self) private var model
     var kind: ThingKind?
+    /// An external disk's list; nil is the startup disk.
+    var disk: ExternalDisk?
 
     var body: some View {
-        let plan = model.plan
+        let plan = disk.map(model.plan(for:)) ?? model.plan
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L("已选 \(plan.items.count) 项", "\(plan.items.count) selected"))
@@ -204,13 +206,13 @@ struct SelectionBar: View {
             }
             Spacer()
             Button {
-                model.confirming = true
+                model.confirmCleanUp(disk)
             } label: {
                 Text(L("清理…", "Clean Up…")).padding(.horizontal, 8)
             }
             .buttonStyle(.glassProminent)
             .controlSize(.large)
-            .disabled(plan.items.isEmpty || model.isBusy)
+            .disabled(plan.items.isEmpty || model.isBusy || (disk?.isBusy ?? false))
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
@@ -224,7 +226,7 @@ struct CleanSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let plan = model.plan
+        let plan = model.cleanPlan
         let groups: [(String, String, [ReclaimItem])] = [
             (L("直接删除", "Delete"), L("能重新生成，恢复方法记在日志里", "rebuildable; restore steps are logged"),
              plan.items.filter { if case .delete = $0.action { return true }; if case .deleteAll = $0.action { return true }; if case .compound = $0.action { return true }; return false }),
@@ -235,7 +237,7 @@ struct CleanSheet: View {
         ]
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline) {
-                Text(L("清理 \(plan.items.count) 项", "Clean up \(plan.items.count) items")).font(.title2.weight(.semibold))
+                Text(title(plan.items.count)).font(.title2.weight(.semibold))
                 Spacer()
                 Text(L("约腾出 \(Fmt.bytes(plan.freed))", "≈ \(Fmt.bytes(plan.freed))")).font(.title3).monospacedDigit().foregroundStyle(.secondary)
             }
@@ -280,6 +282,11 @@ struct CleanSheet: View {
         }
         .padding(24)
         .frame(width: 560)
+    }
+
+    private func title(_ n: Int) -> String {
+        guard let d = model.cleanDisk else { return L("清理 \(n) 项", "Clean up \(n) items") }
+        return L("清理「\(d.volume.name)」上的 \(n) 项", "Clean up \(n) items on “\(d.volume.name)”")
     }
 }
 

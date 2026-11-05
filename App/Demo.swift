@@ -12,6 +12,8 @@ struct DemoData {
     var volume: VolumeInfo
     var userFiles: UInt64
     var applications: UInt64
+    /// A made-up external disk.
+    var external: (volume: ExternalVolume, report: Report, tree: ScanTree?)
 
     static func make(now: Date = Date()) -> DemoData {
         var b = Builder(now: now)
@@ -34,7 +36,69 @@ struct DemoData {
         let report = Report(createdAt: now.addingTimeInterval(-4 * 60), volumeTotal: volume.total,
                             volumeFree: volume.free, scanned: volume.dataUsed - hidden, things: b.things)
         return DemoData(report: report, tree: b.tree(), history: b.history(free: volume.free), volume: volume,
-                        userFiles: gb(262), applications: gb(62))
+                        userFiles: gb(262), applications: gb(62), external: externalDisk(now: now))
+    }
+
+    /// "Studio SSD": old client projects and a film's render frames among footage and photos.
+    static func externalDisk(now: Date) -> (volume: ExternalVolume, report: Report, tree: ScanTree?) {
+        let root = "/Volumes/Studio SSD"
+        let v = ExternalVolume(name: "Studio SSD", path: root, uuid: "demo-studio-ssd", total: 2_000_189_177_856, free: gb(612))
+        func ago(_ days: Double) -> Date { now.addingTimeInterval(-days * 86400) }
+        func art(_ path: String, _ kind: String, _ size: Double, restore: String, pre: Bool, reason: String) -> ReclaimItem {
+            ReclaimItem(id: "art:" + path, label: kind, path: path, bytes: gb(size), tier: .regenerable,
+                        action: .delete(path: path), restore: restore, reason: reason, preselected: pre)
+        }
+        let npm = L("npm 依赖，可以按锁文件重新安装", "npm dependencies, reinstallable from the lockfile")
+        let rust = L("Rust/Java 编译产物，重新编译即可", "Rust/Java build output, rebuilt by compiling")
+        let py = L("Python 虚拟环境，可以重建", "Python virtualenv, can be recreated")
+        let p = root + "/Projects/"
+        let film = root + "/Films/harbor-documentary"
+        var things = [
+            Thing(id: "project:" + p + "client-portal-2024", kind: .project, title: "client-portal-2024", path: p + "client-portal-2024",
+                  bytes: gb(6.8), lastActive: ago(412), activitySource: L("文件改动", "file changes"),
+                  detail: L("沉睡 412 天", "asleep for 412 days"), items: [
+                      art(p + "client-portal-2024/node_modules", "node_modules", 4.1, restore: "npm ci", pre: true, reason: npm),
+                      art(p + "client-portal-2024/dist", "dist", 0.9, restore: "npm run build", pre: true,
+                          reason: L("构建输出，被 git 忽略", "build output ignored by git")),
+                  ]),
+            Thing(id: "project:" + p + "tile-engine", kind: .project, title: "tile-engine", path: p + "tile-engine",
+                  bytes: gb(14.2), lastActive: ago(198), activitySource: "Claude Code",
+                  detail: L("沉睡 198 天", "asleep for 198 days"), items: [
+                      art(p + "tile-engine/target", "target", 12.6, restore: "cargo build", pre: true, reason: rust),
+                  ]),
+            Thing(id: "project:" + p + "speech-dataset-tools", kind: .project, title: "speech-dataset-tools",
+                  path: p + "speech-dataset-tools", bytes: gb(5.3), lastActive: ago(12), activitySource: "Codex", items: [
+                      art(p + "speech-dataset-tools/.venv", "venv", 4.4, restore: "uv sync", pre: false, reason: py),
+                  ]),
+        ]
+        things.append(Thing(id: "media:" + film, kind: .media,
+                            title: L("渲染中间帧 · harbor-documentary", "Render frames · harbor-documentary"),
+                            path: film, bytes: gb(48.6), detail: L("1 组帧序列", "1 frame folders"), items: [
+            ReclaimItem(id: "frames:" + film + "/render/frames", label: L("渲染帧 14400 张", "14,400 rendered frames"),
+                        path: film + "/render/frames", bytes: gb(48.6), tier: .regenerable,
+                        action: .delete(path: film + "/render/frames"),
+                        restore: L("用原工程重新渲染", "re-render from the source project"),
+                        reason: L("成片已存在：\(film)/harbor-final.mov（帧数与时长 × 帧率吻合）",
+                                  "final video exists: \(film)/harbor-final.mov (frame count matches duration × fps)"),
+                        preselected: true),
+        ]))
+        var folders: [String: UInt64] = [root + "/Footage": gb(742), root + "/Photos": gb(318), root + "/Backups": gb(166),
+                                         root + "/Films": gb(61), root + "/Projects": gb(3)]
+        var folded: Set<String> = []
+        for t in things {
+            var rest = t.bytes
+            for i in t.items {
+                guard let ip = i.path else { continue }
+                folders[ip, default: 0] += i.bytes
+                rest -= min(rest, i.bytes)
+                if ["node_modules", "venv", "target"].contains(i.label) { folded.insert(ip) }
+            }
+            if let tp = t.path { folders[tp, default: 0] += rest }
+        }
+        let tree = ScanTree.synthetic(root: root, folders: folders, folded: folded, modified: ago(3))
+        let report = Report(createdAt: now.addingTimeInterval(-20 * 60), volumeTotal: v.total, volumeFree: v.free,
+                            scanned: v.used, things: things)
+        return (v, report, tree)
     }
 }
 

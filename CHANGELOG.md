@@ -8,6 +8,24 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **External disks.** Each connected disk (USB or Thunderbolt drive, SD card,
+  writable disk image) gets a row in the sidebar and its own page: projects
+  and render frames on it, a map, and a Clean Up that works on that disk and
+  measures the space freed there. Disks are scanned when plugged in, on Rescan
+  and after Clean Up, not followed live; the last scan is shown meanwhile.
+  Without Full Disk Access a disk is scanned only when you click Scan.
+- `smd things /Volumes/<name>` and `smd reclaim /Volumes/<name>` for external
+  disks. `smd things` lists connected disks at the end.
+
+### Changed
+
+- The toolbar's Rescan (⌘R) rescans the disk on screen.
+- A disk's own root folder can never be deleted.
+- bun's global packages folder (`bun/install/global`) is never treated as a
+  project, wherever it lives.
+
 ## [0.3.1] - 2026-11-05
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and

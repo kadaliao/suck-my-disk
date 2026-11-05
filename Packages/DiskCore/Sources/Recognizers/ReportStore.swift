@@ -6,25 +6,30 @@ public enum ReportStore {
     public static var reportURL: URL { AppPaths.supportDir.appendingPathComponent("last-report.json") }
     public static var indexURL: URL { AppPaths.indexURL(volumeUUID: VolumeInfo.of().uuid) }
 
-    public static func save(_ r: Report) {
+    /// An external disk's report; its index is `AppPaths.indexURL(volumeUUID:)` like the startup disk's.
+    public static func reportURL(volume uuid: String) -> URL {
+        AppPaths.supportDir.appendingPathComponent("report-\(uuid).json")
+    }
+
+    public static func save(_ r: Report, to url: URL = reportURL) {
         try? AppPaths.ensure()
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .secondsSince1970
-        if let d = try? enc.encode(r) { try? d.write(to: reportURL, options: .atomic) }
+        if let d = try? enc.encode(r) { try? d.write(to: url, options: .atomic) }
     }
 
-    public static func load() -> Report? {
-        guard let d = try? Data(contentsOf: reportURL) else { return nil }
+    public static func load(from url: URL = reportURL) -> Report? {
+        guard let d = try? Data(contentsOf: url) else { return nil }
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .secondsSince1970
         return try? dec.decode(Report.self, from: d)
     }
 
-    public static func loadIndex() -> ScanTree? { try? ScanTree.load(from: indexURL) }
+    public static func loadIndex(from url: URL = indexURL) -> ScanTree? { try? ScanTree.load(from: url) }
 
-    public static func saveIndex(_ t: ScanTree) throws {
+    public static func saveIndex(_ t: ScanTree, to url: URL = indexURL) throws {
         try AppPaths.ensure()
-        try t.save(to: indexURL)
+        try t.save(to: url)
     }
 
     /// After deleting things the report no longer matches the disk. The index stays:

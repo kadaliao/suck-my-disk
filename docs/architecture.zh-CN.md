@@ -85,6 +85,16 @@ APFS 克隆和硬链接会共享数据块。扫描器把这类文件标成 `SM_F
 
 App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟踪磁盘大约占一个核的 1%。改动积累到一定程度，App 会在后台重新识别；`smd` 每次运行都会先追上改动。
 
+## 外接磁盘
+
+`ExternalVolumes.list()` 只靠卷属性找出 `/Volumes` 下本地、可写、可见的卷：不读任何文件夹，所以列出磁盘永远不会弹授权。网络共享、只读的磁盘映像和隐藏卷（时间机器）不算。
+
+每块盘用同一个扫描器扫描，挂载点是唯一的根，写进它自己的 `index-<volume-uuid>.bin`。`Recognize.external` 只运行项目和渲染帧两个识别器：设置 `allowAnyPath`（哪里的项目都算，不限个人文件夹），并把盘根目录下的点文件夹划为禁区（`.Trashes`、`.Spotlight-V100`，以及从个人文件夹搬过来的点文件夹，那里面到处是 `package.json` + `node_modules`）。报告写进 `report-<volume-uuid>.json`。
+
+外接磁盘没有 FSEvents 流：App 在它挂载时（`NSWorkspace.didMountNotification`）或启动时它已接着、点重新扫描时、以及清理之后扫描一次，其间显示保存的索引和报告。没有完全磁盘访问时只在用户要求时扫描，因为 macOS 读外接磁盘前会弹窗询问。命令行里 `smd things /Volumes/<name>` 和 `smd reclaim /Volumes/<name>` 做同样的事。
+
+`Executor` 在条目所在的卷上测量腾出的空间（`ExternalVolumes.mountPoint`），`Guards.isDenied` 拒绝任何卷的根目录。
+
 ## 隐私
 
 没有完全磁盘访问时，读桌面、文稿、下载、iCloud 云盘、`~/Library/Containers`、`~/Library/Group Containers` 或 `/Volumes` 会弹出授权对话框。进程没有完全磁盘访问时（检测方法是试着打开 TCC 数据库，这一步永远不会弹窗），`Privacy.rootsToSkip()` 返回这些目录，扫描器、实时更新和识别器都不会碰它们。`LiveIndexTests.privacyPromptingFoldersAreNeverOpened` 专门守着这一点。`--snapshot` 和 `--demo` 模式会设置 `Privacy.alwaysSkip`，绝不碰这些目录。
@@ -122,15 +132,16 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 | --- | --- | --- |
 | `index-<volume-uuid>.bin` | `ScanTree.save` | 树，以及它所对应的 FSEvents 事件 id 和数据库 UUID |
 | `last-report.json` | `ReportStore.save` | 最近一次的 `Report`；清理后会删掉 |
+| `report-<volume-uuid>.json` | `ReportStore.save(_:to:)` | 外接磁盘最近一次的 `Report` |
 | `smd.sqlite` | `Store` | `history`（每样东西每天的大小）、`volume_history`、`journal` |
 
 ## App
 
-`AppModel` 管所有状态：加载好的树、实时更新循环、报告、勾选（刷新后保留）、清理计划和清理进度。它从 `AppDelegate.applicationDidFinishLaunching` 启动，所以即使 App 启动时只有菜单栏图标、没有打开主窗口，也照常工作；退出时保存索引。
+`AppModel` 管所有状态：加载好的树、实时更新循环、报告、勾选（刷新后保留，所有磁盘共用一份）、清理计划和清理进度。每块外接磁盘是一个 `ExternalDisk`，有自己的树、报告和扫描进度；`page` 记录现在显示的是启动磁盘的某个分区还是某块外接磁盘，`cleanDisk` 记录「清理」要处理哪块盘。它从 `AppDelegate.applicationDidFinishLaunching` 启动，所以即使 App 启动时只有菜单栏图标、没有打开主窗口，也照常工作；退出时保存索引。
 
 `--snapshot <dir>` 把每个页面渲染成 PNG 然后退出。`scripts/snapshots.sh` 通过 LaunchServices 用这个模式启动 App（只有这样 Liquid Glass 才能正常渲染），再在有屏幕录制权限的终端里截取窗口。
 
-`--demo` 用 `Demo.swift` 里的虚构数据代替磁盘：一份报告；一份用 `ScanTree.synthetic` 按文件夹大小清单搭出来的索引（先用 `sm_tree_create` 建一棵空树，再通过实时更新的补丁接口填进去，全程不碰磁盘）；两周的时间线；以及磁盘容量数字。这时 `AppModel` 会跳过重新扫描和保存，「清理」只是把条目从列表里拿掉，演示数据永远不会交给执行器。`scripts/doc-screenshots.sh` 用演示模式运行 `snapshots.sh`，生成 `docs/images` 里的截图。
+`--demo` 用 `Demo.swift` 里的虚构数据代替磁盘：一份报告；一份用 `ScanTree.synthetic` 按文件夹大小清单搭出来的索引（先用 `sm_tree_create` 建一棵空树，再通过实时更新的补丁接口填进去，全程不碰磁盘）；两周的时间线；磁盘容量数字；以及一块虚构的外接磁盘（「Studio SSD」）。这时 `AppModel` 会跳过重新扫描和保存，「清理」只是把条目从列表里拿掉，演示数据永远不会交给执行器。`scripts/doc-screenshots.sh` 用演示模式运行 `snapshots.sh`，生成 `docs/images` 里的截图。
 
 ## 多语言
 
@@ -144,6 +155,6 @@ App 和命令行里所有给用户看的文字，都通过 `Fmt.swift` 里的 `L
 
 - `ScannerTests`：克隆和硬链接的计数、折叠和标记位、快照的保存与读回、合成树、firmlinks。
 - `AccountingTests`：同时释放 uv 缓存和 `.venv`。
-- `RecognizerTests`：项目产物和恢复命令、活跃项目不预选、渲染帧序列和相机连拍的区分。
-- `SafetyTests`：受保护位置、被包含的项、执行器拒绝受保护路径和 git 跟踪的路径、7 天规则。
+- `RecognizerTests`：项目产物和恢复命令、活跃项目不预选、外接磁盘上的项目（不含盘上的点文件夹）、渲染帧序列和相机连拍的区分。
+- `SafetyTests`：受保护位置、被包含的项、执行器拒绝受保护路径和 git 跟踪的路径、7 天规则、Node 脚本在 App 的精简 PATH 下也能找到 `node`。
 - `LiveIndexTests`：打过补丁的树和重新扫描的结果一致、保存后的树能继续增长、大目录排队等待、会弹授权的目录从不被打开、FSEvents 驱动更新。

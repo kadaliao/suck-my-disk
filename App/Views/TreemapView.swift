@@ -16,15 +16,26 @@ struct TMRect: Identifiable {
 
 struct TreemapView: View {
     @Environment(AppModel.self) private var model
+    /// An external disk; nil is the startup disk.
+    var disk: ExternalDisk?
     /// Drill-down as raw paths: node ids can go away when the disk changes.
     @State private var stackPaths: [String] = []
     @State private var stack: [NodeID] = []
     @State private var rects: [TMRect] = []
     @State private var hovered: TMRect?
 
+    private var tree: ScanTree? {
+        if let disk { return disk.tree }
+        return model.tree
+    }
+    private var things: [Thing] { disk?.things ?? model.things }
+    private var revision: Int { disk?.treeRevision ?? model.treeRevision }
+    /// Where the map opens: the home folder, or the external disk's top.
+    private var start: String { disk?.volume.path ?? NSHomeDirectory() }
+
     var body: some View {
         Group {
-            if let tree = model.tree {
+            if let tree {
                 VStack(alignment: .leading, spacing: 0) {
                     breadcrumb(tree)
                         .padding(.horizontal, 20)
@@ -34,7 +45,7 @@ struct TreemapView: View {
                             .onAppear { relayout(tree, geo.size) }
                             .onChange(of: geo.size) { _, s in relayout(tree, s) }
                             .onChange(of: stackPaths) { _, _ in relayout(tree, geo.size) }
-                            .onChange(of: model.treeRevision) { _, _ in relayout(tree, geo.size) }
+                            .onChange(of: revision) { _, _ in relayout(tree, geo.size) }
                     }
                     .padding(.horizontal, 16)
                     infoBar(tree)
@@ -42,6 +53,12 @@ struct TreemapView: View {
                 .onAppear { resolveStack(tree) }
                 // A full rescan brings a new tree whose node ids mean nothing to the old state.
                 .id(ObjectIdentifier(tree))
+            } else if let disk {
+                ContentUnavailableView {
+                    Label(L("还没扫描这块盘", "This disk hasn't been scanned"), systemImage: "externaldrive")
+                } actions: {
+                    Button(L("扫描", "Scan")) { Task { await model.scan(disk, interactive: true) } }.disabled(disk.isBusy)
+                }
             } else {
                 ContentUnavailableView {
                     Label(L("索引需要更新", "The index needs a refresh"), systemImage: "square.grid.3x3.square")
@@ -52,7 +69,7 @@ struct TreemapView: View {
                 }
             }
         }
-        .navigationTitle(L("全盘", "Whole Disk"))
+        .navigationTitle(disk?.volume.name ?? L("全盘", "Whole Disk"))
     }
 
     private func pathTo(_ node: NodeID, _ tree: ScanTree) -> [NodeID] {
@@ -88,7 +105,7 @@ struct TreemapView: View {
             }
         }
         .onTapGesture(count: 1, coordinateSpace: .local) { p in
-            if let r = rects.last(where: { $0.rect.contains(p) && $0.drillable }), let tree = model.tree {
+            if let r = rects.last(where: { $0.rect.contains(p) && $0.drillable }), let tree {
                 withAnimation(.snappy) { stackPaths = pathTo(r.id, tree).map { tree.rawPath($0) } }
             }
         }
@@ -102,7 +119,7 @@ struct TreemapView: View {
             out.append(hit.node)
         }
         if out.isEmpty {
-            out = tree.find(NSHomeDirectory()).map { pathTo($0, tree) } ?? tree.children(ScanTree.root)
+            out = tree.find(start).map { pathTo($0, tree) } ?? tree.children(ScanTree.root)
             stackPaths = out.map { tree.rawPath($0) }
         } else if out.count < stackPaths.count {
             stackPaths = Array(stackPaths.prefix(out.count))
@@ -114,7 +131,7 @@ struct TreemapView: View {
         HStack(spacing: 4) {
             ForEach(Array(stack.enumerated()), id: \.offset) { i, n in
                 if i > 0 { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary) }
-                Button(i == 0 ? L("磁盘", "Disk") : tree.name(n)) {
+                Button(i == 0 ? (disk?.volume.name ?? L("磁盘", "Disk")) : tree.name(n)) {
                     withAnimation(.snappy) { stackPaths = Array(stackPaths.prefix(i + 1)) }
                 }
                 .buttonStyle(.plain)
@@ -159,7 +176,7 @@ struct TreemapView: View {
 
     private func kindMap(_ tree: ScanTree) -> [NodeID: ThingKind] {
         var m: [NodeID: ThingKind] = [:]
-        for t in model.things {
+        for t in things {
             if let p = t.path, let n = tree.find(p) { m[n] = t.kind }
             for i in t.items { if let p = i.path, let n = tree.find(p) { m[n] = t.kind } }
         }

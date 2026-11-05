@@ -62,9 +62,11 @@ public final class Executor {
         for p in Self.paths(item.action) where FileManager.default.fileExists(atPath: p + "/pyvenv.cfg") {
             detail.append(venvSnapshot(p))
         }
-        let before = VolumeInfo.freeBytes()
+        // Measure the disk the item is on: it may be an external one.
+        let disk = Self.paths(item.action).lazy.compactMap(ExternalVolumes.mountPoint).first ?? Firmlinks.dataRoot
+        let before = VolumeInfo.freeBytes(disk)
         let error = perform(item.action)
-        let after = VolumeInfo.freeBytes()
+        let after = VolumeInfo.freeBytes(disk)
         if let error { detail.append(error) }
         return finish(item, error == nil ? .done : .failed, Int64(after) - Int64(before),
                       error ?? "", before: before, after: after, detail: detail.joined(separator: "\n"))

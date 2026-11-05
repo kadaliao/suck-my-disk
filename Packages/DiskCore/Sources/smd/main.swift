@@ -9,8 +9,9 @@ import Reclaim
 //
 //   smd scan [paths…] [--threads N]      full scan (default: whole data volume), saves the index
 //   smd top [path] [-n N]                biggest items under a path, from the index
-//   smd things [--rescan] [--json]       what is using space and what can be reclaimed
-//   smd reclaim [--select 1,2] [--add 3] [--remove 4] [--yes] [--force]
+//   smd things [disk] [--rescan] [--json] what is using space and what can be reclaimed
+//   smd reclaim [disk] [--select 1,2] [--add 3] [--remove 4] [--yes] [--force]
+//                                        disk: an external disk's mount point, /Volumes/<name>
 //   smd hibernate <project> [--yes]      delete a project's rebuildable artifacts
 //   smd wake <project>                   show how to restore a hibernated project
 //   smd journal                          what was done
@@ -144,7 +145,7 @@ func numberItems(_ report: Report) -> [Numbered] {
     return out
 }
 
-func printReport(_ report: Report, verbose: Bool) {
+func printReport(_ report: Report, verbose: Bool, disk: ExternalVolume? = nil) {
     let used = report.volumeTotal - report.volumeFree
     print(L("磁盘 \(Fmt.bytes(report.volumeTotal)) · 已用 \(Fmt.bytes(used)) · 可用 \(Fmt.bytes(report.volumeFree))",
             "Disk \(Fmt.bytes(report.volumeTotal)) · used \(Fmt.bytes(used)) · free \(Fmt.bytes(report.volumeFree))"))
@@ -184,8 +185,51 @@ func printReport(_ report: Report, verbose: Bool) {
     }
     print(L("● 可再生，直接删除并记录恢复方法   ○ 你的文件，移到废纸篓   [x] 预选",
             "● regenerable, deleted with a restore note   ○ yours, moved to the Trash   [x] preselected"))
-    print(L("下一步：smd reclaim（先预演）· smd reclaim --add 12 --remove 3 · 确认后加 --yes",
-            "Next: smd reclaim (dry run) · smd reclaim --add 12 --remove 3 · add --yes to run"))
+    let reclaim = "smd reclaim" + (disk.map { " " + shellQuote($0.path) } ?? "")
+    print(L("下一步：\(reclaim)（先预演）· \(reclaim) --add 12 --remove 3 · 确认后加 --yes",
+            "Next: \(reclaim) (dry run) · \(reclaim) --add 12 --remove 3 · add --yes to run"))
+    if disk == nil {
+        for v in ExternalVolumes.list() {
+            print(L("外接磁盘 \(v.name)：smd things \(shellQuote(v.path))", "External disk \(v.name): smd things \(shellQuote(v.path))"))
+        }
+    }
+}
+
+func shellQuote(_ s: String) -> String {
+    s.allSatisfy { $0.isLetter || $0.isNumber || "/._-".contains($0) } ? s : "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
+/// The external disk named by the first argument (its mount point), if any.
+func externalDisk() -> ExternalVolume? {
+    guard let p = args.positional.first else { return nil }
+    let path = ((p as NSString).expandingTildeInPath as NSString).standardizingPath
+    guard let v = ExternalVolumes.list().first(where: { $0.path == path }) else {
+        err(L("\(p) 不是已挂载的外接磁盘", "\(p) is not a mounted external disk"))
+        exit(2)
+    }
+    return v
+}
+
+/// Scans an external disk (or reuses its index from the last hour) and recognizes what is on it.
+func externalReport(_ v: ExternalVolume, rescan: Bool) async -> Report? {
+    let url = AppPaths.indexURL(volumeUUID: v.uuid)
+    var tree: ScanTree?
+    if !rescan, let t = ReportStore.loadIndex(from: url) {
+        let age = Date().timeIntervalSince1970 - t.stats.created_at
+        if age < 3600 {
+            err(L("使用 \(Int(age / 60)) 分钟前的索引（--rescan 重新扫描）", "Using the index from \(Int(age / 60)) min ago (--rescan to refresh)"))
+            tree = t
+        }
+    }
+    if tree == nil {
+        tree = scanWithProgress([v.path])
+        if let tree { try? ReportStore.saveIndex(tree, to: url) }
+    }
+    guard let tree else { return nil }
+    let days = Int(args.values["days"] ?? "") ?? 30
+    let report = await Recognize.external(tree: tree, volume: v, sleepAfterDays: days) { err($0) }
+    ReportStore.save(report, to: ReportStore.reportURL(volume: v.uuid))
+    return report
 }
 
 func makeReport(rescan: Bool) async -> Report? {
@@ -202,7 +246,7 @@ func currentReport() async -> Report? {
     return await makeReport(rescan: args.has("rescan"))
 }
 
-func runPlan(_ items: [ReclaimItem], execute: Bool) {
+func runPlan(_ items: [ReclaimItem], execute: Bool, disk: ExternalVolume? = nil) {
     let total = items.reduce(UInt64(0)) { $0 + $1.estimate }
     print(L("计划腾出 ≈ \(Fmt.bytes(total))，共 \(items.count) 项：", "Plan frees ≈ \(Fmt.bytes(total)) in \(items.count) items:"))
     for i in items {
@@ -224,7 +268,8 @@ func runPlan(_ items: [ReclaimItem], execute: Bool) {
     print("")
     let store = try? Store()
     let ex = Executor(store: store, force: args.has("force"))
-    let before = VolumeInfo.freeBytes()
+    let mount = disk?.path ?? Firmlinks.dataRoot
+    let before = VolumeInfo.freeBytes(mount)
     var done = 0
     for o in ex.run(items) {
         switch o.status {
@@ -235,7 +280,7 @@ func runPlan(_ items: [ReclaimItem], execute: Bool) {
         case .failed: print("  ✗ \(o.item.label)  " + L("失败：", "failed: ") + o.message)
         }
     }
-    let after = VolumeInfo.freeBytes()
+    let after = VolumeInfo.freeBytes(mount)
     print("")
     print(L("完成 \(done)/\(items.count) 项，可用空间 \(Fmt.bytes(before)) → \(Fmt.bytes(after))（+\(Fmt.bytes(after > before ? after - before : 0))）",
             "Done \(done)/\(items.count). Free space \(Fmt.bytes(before)) → \(Fmt.bytes(after)) (+\(Fmt.bytes(after > before ? after - before : 0)))"))
@@ -280,18 +325,28 @@ case "top":
     }
 
 case "things":
-    guard let report = await makeReport(rescan: args.has("rescan")) else { exit(1) }
+    let disk = externalDisk()
+    let made = if let disk { await externalReport(disk, rescan: args.has("rescan")) } else { await makeReport(rescan: args.has("rescan")) }
+    guard let report = made else { exit(1) }
     if args.has("json") {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         enc.dateEncodingStrategy = .iso8601
         print(String(decoding: try! enc.encode(report), as: UTF8.self))
     } else {
-        printReport(report, verbose: args.has("v"))
+        printReport(report, verbose: args.has("v"), disk: disk)
     }
 
 case "reclaim":
-    guard let report = await currentReport() else { exit(1) }
+    let disk = externalDisk()
+    let current: Report?
+    if let disk {
+        let saved = args.has("rescan") ? nil : ReportStore.load(from: ReportStore.reportURL(volume: disk.uuid))
+        current = if let saved, Date().timeIntervalSince(saved.createdAt) < 3600 { saved } else { await externalReport(disk, rescan: args.has("rescan")) }
+    } else {
+        current = await currentReport()
+    }
+    guard let report = current else { exit(1) }
     let numbered = numberItems(report)
     var selected: Set<String>
     if let sel = args.values["select"] {
@@ -303,7 +358,7 @@ case "reclaim":
     for n in args.ints("add") { if let x = numbered.first(where: { $0.number == n }) { selected.insert(x.item.id) } }
     for n in args.ints("remove") { if let x = numbered.first(where: { $0.number == n }) { selected.remove(x.item.id) } }
     let plan = Planner.plan(things: report.things, selected: selected)
-    runPlan(plan.items, execute: args.has("yes"))
+    runPlan(plan.items, execute: args.has("yes"), disk: disk)
 
 case "hibernate":
     guard let target = args.positional.first.map({ (($0 as NSString).expandingTildeInPath as NSString).standardizingPath }) else {
@@ -359,6 +414,8 @@ default:
 
       smd things [--rescan] [-v] [--json] [--days 30]   \(L("看看空间被谁占了、能腾出多少", "what uses space and what can go"))
       smd reclaim [--add 3,5] [--remove 2] [--yes]      \(L("按预选清理（默认只预演）", "reclaim the preselection (dry run by default)"))
+      smd things /Volumes/<disk>                        \(L("外接磁盘上的项目和渲染帧", "projects and render frames on an external disk"))
+      smd reclaim /Volumes/<disk> [--yes]               \(L("清理外接磁盘上的预选项", "reclaim the preselection on an external disk"))
       smd hibernate <project> [--yes]                   \(L("让一个项目休眠", "hibernate one project"))
       smd wake <project>                                \(L("显示恢复命令", "show restore commands"))
       smd scan [paths…]                                 \(L("全盘扫描并保存索引", "full scan, saves the index"))

@@ -12,7 +12,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 # snapshots.sh file name → docs/images file name
 NAMES="0-overview:overview 1-project:projects 2-media:media 3-devCache:dev-caches 4-model:models
-       5-appData:app-data 6-disk:whole-disk 7-timeline:timeline 9-clean-sheet:clean-up"
+       5-appData:app-data 6-disk:whole-disk 7-timeline:timeline 8-external:external-disk 9-clean-sheet:clean-up"
 
 for lang in en zh-CN; do
   if [ "$lang" = zh-CN ]; then apple="(zh-Hans)"; else apple="(en)"; fi

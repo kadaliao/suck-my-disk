@@ -43,9 +43,9 @@ struct SuckMyDiskApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(after: .newItem) {
-                Button(L("重新扫描", "Rescan")) { Task { await model.rescan() } }
+                Button(L("重新扫描", "Rescan")) { Task { await model.rescanCurrent() } }
                     .keyboardShortcut("r")
-                    .disabled(model.isBusy)
+                    .disabled(model.isBusy || (model.currentDisk?.isBusy ?? false))
             }
         }
 
@@ -64,13 +64,18 @@ struct RootView: View {
     var body: some View {
         @Bindable var model = model
         NavigationSplitView {
-            List(selection: $model.section) {
+            List(selection: $model.page) {
                 ForEach([Section.overview], id: \.self) { s in sidebarRow(s) }
                 SwiftUI.Section(L("可以清理", "Reclaim")) {
                     ForEach([Section.project, .media, .devCache, .model, .appData], id: \.self) { s in sidebarRow(s) }
                 }
                 SwiftUI.Section(L("透视", "Explore")) {
                     ForEach([Section.disk, .timeline], id: \.self) { s in sidebarRow(s) }
+                }
+                if !model.externals.isEmpty {
+                    SwiftUI.Section(L("外接磁盘", "External Disks")) {
+                        ForEach(model.externals) { d in diskRow(d) }
+                    }
                 }
             }
             .listStyle(.sidebar)
@@ -80,12 +85,13 @@ struct RootView: View {
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
-                            Task { await model.rescan() }
+                            Task { await model.rescanCurrent() }
                         } label: {
                             Label(L("重新扫描", "Rescan"), systemImage: "arrow.clockwise")
                         }
-                        .disabled(model.isBusy)
-                        .help(L("重新扫描整个磁盘", "Rescan the whole disk"))
+                        .disabled(model.isBusy || (model.currentDisk?.isBusy ?? false))
+                        .help(model.currentDisk.map { L("重新扫描「\($0.volume.name)」", "Rescan “\($0.volume.name)”") }
+                              ?? L("重新扫描整个磁盘", "Rescan the whole disk"))
                     }
                 }
                 .overlay(alignment: .bottom) { StatusPill() }
@@ -111,12 +117,34 @@ struct RootView: View {
             Image(systemName: s.symbol)
                 .foregroundStyle(s.kind?.color ?? .accentColor)
         }
-        .tag(s)
+        .tag(Page.section(s))
+    }
+
+    private func diskRow(_ d: ExternalDisk) -> some View {
+        Label {
+            HStack {
+                Text(d.volume.name).lineLimit(1)
+                Spacer()
+                if d.isBusy {
+                    ProgressView().controlSize(.mini)
+                } else if d.reclaimable > 0 {
+                    Text(Fmt.bytes(d.reclaimable))
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } icon: {
+            Image(systemName: "externaldrive").foregroundStyle(Color.accentColor)
+        }
+        .tag(Page.disk(d.id))
     }
 
     @ViewBuilder
     private var detail: some View {
-        if model.report == nil {
+        if let d = model.currentDisk {
+            ExternalDiskView(disk: d).id(d.id)
+        } else if model.report == nil {
             FirstScanView()
         } else {
             switch model.section {

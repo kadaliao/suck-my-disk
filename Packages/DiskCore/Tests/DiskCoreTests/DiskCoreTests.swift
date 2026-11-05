@@ -75,6 +75,16 @@ final class Fixture {
 }
 
 @Suite struct ScannerTests {
+    /// Ejecting a disk cancels its scan, so the scan must stop and return nothing.
+    @Test func scansCanBeCancelled() throws {
+        let f = try Fixture()
+        try f.file("a/b.bin", mb: 2)
+        let stop = ScanCancellation()
+        #expect(ScanTree.scan(roots: [f.root], cancellation: ScanCancellation()) != nil)
+        stop.cancel()
+        #expect(ScanTree.scan(roots: [f.root], cancellation: stop) == nil)
+    }
+
     @Test func clonesAndHardLinksAreCountedOnce() throws {
         let f = try Fixture()
         try f.file("a.bin", mb: 4)
@@ -207,6 +217,30 @@ final class Fixture {
         #expect(!anyPre)
     }
 
+    /// An external disk: projects anywhere on it, but not in its top-level dot folders
+    /// (.vscode-server moved off the home folder is full of package.json + node_modules).
+    @Test func externalDiskProjects() async throws {
+        let f = try Fixture()
+        try f.file("package.json", text: "{}")   // the disk itself is not a project
+        try f.file("work/proj/.git/HEAD", text: "ref")
+        try f.file("work/proj/package.json", text: "{}")
+        try f.file("work/proj/package-lock.json", text: "{}")
+        try f.file("work/proj/node_modules/x/big.bin", mb: 30)
+        try f.file(".vscode-server/extensions/ext/package.json", text: "{}")
+        try f.file(".vscode-server/extensions/ext/package-lock.json", text: "{}")
+        try f.file(".vscode-server/extensions/ext/node_modules/y/big.bin", mb: 30)
+        try f.file("Offload/bun/install/global/package.json", text: "{}")
+        try f.file("Offload/bun/install/global/bun.lock", text: "{}")
+        try f.file("Offload/bun/install/global/node_modules/z/big.bin", mb: 30)
+        f.age(days: 120)
+        let disk = ExternalVolume(name: "Test", path: f.root, uuid: "test", total: 0, free: 0)
+        let report = await Recognize.external(tree: f.scan(), volume: disk)
+        let projects = report.things.filter { $0.kind == .project }
+        #expect(projects.map(\.path) == [f.path("work/proj")])
+        #expect(projects.first?.items.first?.preselected == true)
+        #expect(report.things.allSatisfy { $0.kind == .project || $0.kind == .media })
+    }
+
     @Test func frameSequenceVersusCameraBurst() throws {
         let f = try Fixture()
         for i in 0..<320 { try f.png(String(format: "render/frames/%05d.png", i)) }
@@ -225,6 +259,8 @@ final class Fixture {
         #expect(Guards.isDenied(h + "/Pictures/Photos Library.photoslibrary"))
         #expect(Guards.isDenied(h + "/workspace/x/.git"))
         #expect(Guards.isDenied(h))
+        #expect(Guards.isDenied("/Volumes"))
+        #expect(Guards.isDenied(Firmlinks.dataRoot))   // a disk's root folder
         #expect(!Guards.isDenied(h + "/workspace/x/node_modules"))
     }
 

@@ -72,7 +72,7 @@ struct OverviewView: View {
             }
             Spacer()
             Button {
-                model.confirming = true
+                model.confirmCleanUp()
             } label: {
                 Label(L("一键清理", "Clean Up"), systemImage: "sparkles").padding(.horizontal, 10).padding(.vertical, 4)
             }

@@ -25,6 +25,30 @@ public struct ScanOptions: Sendable {
     }
 }
 
+/// Stops a running scan from another thread; the scan then returns nil.
+public final class ScanCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var scanner: OpaquePointer?
+    private var cancelled = false
+
+    public init() {}
+
+    public func cancel() {
+        lock.withLock {
+            cancelled = true
+            if let scanner { sm_scanner_cancel(scanner) }
+        }
+    }
+
+    /// Returns false if the scan was cancelled before it started.
+    fileprivate func attach(_ s: OpaquePointer?) -> Bool {
+        lock.withLock {
+            scanner = s
+            return !cancelled
+        }
+    }
+}
+
 public struct ScanProgress: Sendable {
     public var files: UInt64
     public var dirs: UInt64
@@ -273,7 +297,7 @@ public final class ScanTree: @unchecked Sendable {
     /// `rootFlags[i]` may hold SM_F_COLLAPSED / SM_F_PACKAGE to scan that root folded.
     public static func scan(
         roots: [String], rootFlags: [UInt32]? = nil, options: ScanOptions = ScanOptions(),
-        progress: (@Sendable (ScanProgress) -> Void)? = nil
+        cancellation: ScanCancellation? = nil, progress: (@Sendable (ScanProgress) -> Void)? = nil
     ) -> ScanTree? {
         var o = sm_scan_opts()
         o.threads = Int32(options.threads)
@@ -289,17 +313,21 @@ public final class ScanTree: @unchecked Sendable {
         return skipPtrs.withUnsafeBufferPointer { sp in
             o.skip = sp.isEmpty ? nil : sp.baseAddress
             o.nskip = Int32(sp.count)
-            return run(o, roots: roots, rootFlags: rootFlags, progress: progress)
+            return run(o, roots: roots, rootFlags: rootFlags, cancellation: cancellation, progress: progress)
         }
     }
 
     private static func run(
-        _ opts: sm_scan_opts, roots: [String], rootFlags: [UInt32]?,
+        _ opts: sm_scan_opts, roots: [String], rootFlags: [UInt32]?, cancellation: ScanCancellation?,
         progress: (@Sendable (ScanProgress) -> Void)?
     ) -> ScanTree? {
         var o = opts
         guard let scanner = sm_scanner_create(&o) else { return nil }
-        defer { sm_scanner_free(scanner) }
+        defer {
+            _ = cancellation?.attach(nil)
+            sm_scanner_free(scanner)
+        }
+        if let cancellation, !cancellation.attach(scanner) { return nil }
 
         let box = ScannerBox(scanner)
         let done = DoneFlag()

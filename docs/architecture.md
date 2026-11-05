@@ -137,6 +137,32 @@ Catching up after the app was closed for a while takes about 0.3–1 seconds;
 following the disk costs about 1% of one core. The app reruns recognition in
 the background when enough has changed; `smd` catches up on every run.
 
+## External disks
+
+`ExternalVolumes.list()` finds local, writable, browsable volumes under
+`/Volumes` from volume attributes alone: no folder is read, so listing never
+raises a privacy prompt. Network shares, read-only disk images and hidden
+volumes (Time Machine) are left out.
+
+Each disk is scanned with the same scanner, its mount point as the only root,
+into its own `index-<volume-uuid>.bin`. `Recognize.external` runs only the
+project and frame recognizers, with `allowAnyPath` set (projects anywhere, not
+just in the home folder) and the disk's top-level dot folders off limits
+(`.Trashes`, `.Spotlight-V100`, and dot folders moved off the home folder,
+which are full of `package.json` + `node_modules`). Its report goes to
+`report-<volume-uuid>.json`.
+
+External disks have no FSEvents stream: the app scans one when it mounts
+(`NSWorkspace.didMountNotification`) or is present at launch, on Rescan, and
+after Clean Up, and shows the saved index and report meanwhile. Without Full
+Disk Access it scans only when the user asks, because macOS prompts before an
+app reads an external disk. `smd things /Volumes/<name>` and
+`smd reclaim /Volumes/<name>` do the same from the command line.
+
+`Executor` measures freed space on the volume that holds the item
+(`ExternalVolumes.mountPoint`), and `Guards.isDenied` refuses any volume's root
+folder.
+
 ## Privacy
 
 Without Full Disk Access, reading Desktop, Documents, Downloads, iCloud Drive,
@@ -207,12 +233,16 @@ into the journal.
 | --- | --- | --- |
 | `index-<volume-uuid>.bin` | `ScanTree.save` | the tree, with the FSEvents id and database UUID it is current to |
 | `last-report.json` | `ReportStore.save` | the latest `Report`; removed after a cleanup |
+| `report-<volume-uuid>.json` | `ReportStore.save(_:to:)` | an external disk's latest `Report` |
 | `smd.sqlite` | `Store` | `history` (bytes per thing per day), `volume_history`, `journal` |
 
 ## The app
 
 `AppModel` owns the state: the loaded tree, the live loop, the report, the
-selection (kept across refreshes), the plan and cleanup progress. It starts
+selection (kept across refreshes, and shared by every disk), the plan and
+cleanup progress. Each external disk is an `ExternalDisk` with its own tree,
+report and scan phase; `page` says whether a startup-disk section or a disk is
+on screen, and `cleanDisk` which disk Clean Up works on. It starts
 from `AppDelegate.applicationDidFinishLaunching`, so it works even when the
 app opens with only the menu bar item, and saves the index on quit.
 
@@ -224,7 +254,8 @@ terminal that has Screen Recording permission.
 `--demo` replaces the disk with made-up data from `Demo.swift`: a report, an
 index built by `ScanTree.synthetic` from a list of folder sizes (an empty
 tree from `sm_tree_create`, filled in through the live-update patch API, with
-no disk access), two weeks of timeline, and volume numbers. `AppModel` then
+no disk access), two weeks of timeline, volume numbers, and a made-up
+external disk ("Studio SSD"). `AppModel` then
 skips rescans and saving, and Clean Up only removes the items from the lists;
 demo items never reach the executor. `scripts/doc-screenshots.sh` runs
 `snapshots.sh` in demo mode for the screenshots in `docs/images`.
@@ -248,9 +279,11 @@ fixtures built in temporary folders:
   round trip, synthetic trees, firmlinks.
 - `AccountingTests`: freeing a uv cache and a `.venv` together.
 - `RecognizerTests`: project artifacts and restore commands, active projects
-  not preselected, frame sequences versus camera bursts.
+  not preselected, projects on an external disk (not in its dot folders),
+  frame sequences versus camera bursts.
 - `SafetyTests`: denied locations, covered items, executor refusing protected
-  and git-tracked paths, the 7-day rule.
+  and git-tracked paths, the 7-day rule, Node scripts finding `node` from an
+  app's bare PATH.
 - `LiveIndexTests`: a patched tree equals a fresh scan, saved trees keep
   growing, big folders wait their turn, privacy-prompting folders are never
   opened, FSEvents drive the update.

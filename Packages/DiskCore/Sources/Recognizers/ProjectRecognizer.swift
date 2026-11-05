@@ -54,6 +54,9 @@ public enum ProjectRecognizer {
             let path = tree.path(i)
             if !ctx.allowAnyPath, isExcluded(path, home: home) { continue }
             if ctx.isOffLimits(path) { continue }
+            // bun's global packages (~/.bun/install/global), e.g. moved to an external disk:
+            // its node_modules are installed tools, not a project's dependencies.
+            if path.hasSuffix("/bun/install/global") { continue }
             var owner = owner
             let name = tree.name(i)
 
@@ -70,7 +73,8 @@ public enum ProjectRecognizer {
                 continue
             }
             let isGit = n.markers & SM_M_GIT != 0
-            if path != home, (isGit || (owner == nil && n.markers & manifestMask != 0)) {
+            // A scan root (a whole disk) is never a project itself.
+            if path != home, tree.parent(i) != ScanTree.root, (isGit || (owner == nil && n.markers & manifestMask != 0)) {
                 projects[i] = Project(node: i, path: path)
                 owner = i
             }

@@ -43,7 +43,9 @@ macOS asks for permission before an app reads some folders: Desktop,
 Documents, Downloads, iCloud Drive, other apps' containers and external
 volumes. Instead of raising a dialog for each one, SuckMyDisk leaves those
 folders out until it has Full Disk Access, and the overview shows a banner
-saying what is missing.
+saying what is missing. [External disks](#external-disks) are scanned as soon
+as they are plugged in once SuckMyDisk has Full Disk Access; without it, a
+disk's page waits for you to click **Scan**, and macOS asks once.
 
 To grant it:
 
@@ -61,16 +63,18 @@ SuckMyDisk only reads file metadata to measure the disk. See
 
 ## The window
 
-The sidebar has three groups:
+The sidebar has three groups, and a fourth when an external disk is connected:
 
 | Group | Sections |
 | --- | --- |
 | — | **Overview** |
 | Reclaim | **Projects**, **Media**, **Dev caches**, **Models**, **App data**; each shows how much it can free |
 | Explore | **Whole Disk** (treemap), **Timeline** (growth per day) |
+| External Disks | One row per connected disk; see [External disks](#external-disks) |
 
-The toolbar's ↻ button (or **File → Rescan**, ⌘R) rescans the whole disk. You
-rarely need it; see [Live updates](#live-updates-and-rescanning).
+The toolbar's ↻ button (or **File → Rescan**, ⌘R) rescans the disk on screen:
+the startup disk, or the external disk whose page is open. For the startup
+disk you rarely need it; see [Live updates](#live-updates-and-rescanning).
 
 ## Overview
 
@@ -271,6 +275,33 @@ A treemap of the entire disk, colored by category. Click a block to go into
 it; click a name in the path above the map to go back. After a cleanup the
 map asks for a rescan before it is shown again.
 
+## External disks
+
+![An external disk: projects and render frames on it, with a capacity bar](images/en/external-disk.png)
+
+Every connected disk (USB or Thunderbolt drive, SD card, writable disk image)
+gets a row under **External Disks** in the sidebar. Its page shows how much can
+be freed on it, a capacity bar, and two views:
+
+- **Reclaim**: projects and render frames on that disk, recognized the same
+  way as on the startup disk. Dev caches, models and app data live in your
+  home folder, so they stay in their own sections. The disk's top-level hidden
+  folders (`.Trashes`, `.Spotlight-V100`, and dot folders moved off the home
+  folder, such as `.vscode-server`) are left out.
+- **Map**: a treemap of the whole disk, like [Whole Disk](#whole-disk).
+
+**Clean Up…** at the bottom works on that disk only, with the same
+[safety rules](#safety-rules), and the result shows the space freed on that
+disk. Image sequences without a matching video go to the disk's own Trash,
+which frees nothing until you empty it.
+
+External disks are not followed live. A disk is scanned when it is plugged in
+(or when SuckMyDisk starts with it connected), when you click ↻ on its page,
+and after Clean Up. Meanwhile the page shows what the last scan found and how
+long ago that was.
+
+Network shares, read-only disk images and Time Machine disks are not listed.
+
 ## Timeline
 
 ![Timeline](images/en/timeline.png)
@@ -320,6 +351,7 @@ smd things -v           # every group and every item
 smd things --json       # the full report as JSON
 smd things --days 60    # projects count as asleep after 60 days instead of 30
 smd things --rescan     # full disk scan first
+smd things /Volumes/Backup   # an external disk: projects and render frames on it
 ```
 
 Each reclaimable item gets a number:
@@ -349,6 +381,7 @@ smd reclaim --remove 3            # leave item 3 out
 smd reclaim --select 1,2,5        # exactly these items instead of the preselection
 smd reclaim --add 12 --yes        # do it
 smd reclaim --yes --force         # also act on items changed in the last 7 days
+smd reclaim /Volumes/Backup --yes # the preselection on an external disk
 ```
 
 Numbers refer to the last `smd things` report. `reclaim` reuses that report
@@ -471,6 +504,7 @@ account and no telemetry.
 | --- | --- |
 | `index-<volume-uuid>.bin` | The disk index: names, sizes and dates of files and folders |
 | `last-report.json` | The latest recognition report |
+| `report-<volume-uuid>.json` | The latest report for an external disk (its index is an `index-<volume-uuid>.bin` too) |
 | `smd.sqlite` | Daily size history (for the Timeline) and the journal of every cleanup |
 
 **What it reads**
@@ -478,7 +512,7 @@ account and no telemetry.
 - File and folder metadata (names, sizes, dates, clone and hard-link
   information) for the whole data volume, minus the
   [privacy-protected folders](#full-disk-access) when it lacks Full Disk
-  Access.
+  Access, and for each connected external disk.
 - To estimate when you last worked on a project: the folder names and dates in
   `~/.claude/projects`, the working directory recorded at the start of Codex
   session files (`~/.codex/sessions`), `cd` commands in fish and zsh history,
@@ -547,9 +581,9 @@ The live watcher isn't running, so numbers may be out of date. Rescan with ⌘R.
 If it keeps happening, please open an issue.
 
 **Does it scan external drives?**
-No. It scans the startup disk's data volume; other volumes are marked and not
-entered. `smd scan /Volumes/<name>` gives a one-off total for a mounted
-volume.
+Yes, in 0.4.0 and newer: each connected disk gets its own page (see
+[External disks](#external-disks)), and `smd things /Volumes/<name>` does the
+same from the command line. Earlier versions scan only the startup disk.
 
 **Can I change the 30-day "asleep" threshold?**
 In the CLI, with `smd things --days N`. The app uses 30 days.
@@ -572,7 +606,9 @@ The release notes say when that happens.
 
 ## Known limitations
 
-- Only the startup disk is indexed.
+- External disks are not followed live: they are scanned when plugged in, on
+  ↻ and after Clean Up. Only projects and render frames are recognized on
+  them.
 - The *lossless* tier (merging duplicate files into APFS clones) exists in
   the engine but no recognizer produces it yet.
 - Recognizers cover a fixed list of tools. Missing one? See

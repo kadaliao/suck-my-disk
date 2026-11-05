@@ -118,7 +118,7 @@ public struct RecognizeContext: @unchecked Sendable {
     public let now: Date
     public let sleepAfterDays: Int
     public let home = NSHomeDirectory()
-    /// Tests use fixtures outside the home folder.
+    /// Look everywhere in the tree, not just the home folder: external disks, and test fixtures.
     public var allowAnyPath = false
     /// Folders recognizers must not read files in (user-visible paths): see `Privacy`.
     public var offLimits: [String] = []

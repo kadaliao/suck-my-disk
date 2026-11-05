@@ -46,6 +46,8 @@ back.
   git-tracked files and anything changed in the last 7 days are never touched.
 - **Live.** After the first scan the index follows the disk through FSEvents.
   Reopening the app catches up in about a second instead of rescanning.
+- **External disks too.** Each connected disk gets its own page: the projects
+  and render frames on it, a map, and its own Clean Up.
 - **App and command line.** `smd` shares the engine and the index with the app,
   and prints JSON for scripts and coding agents.
 - **Local only.** No network requests, no telemetry, no account.
@@ -98,7 +100,7 @@ smd help
    half a minute to a minute. After that it follows the disk live.
 2. **Grant Full Disk Access** (System Settings → Privacy & Security → Full Disk
    Access → add SuckMyDisk). Without it, Desktop, Documents, Downloads, iCloud
-   Drive, other apps' data and external volumes are left out instead of macOS
+   Drive, other apps' data and external disks are left out instead of macOS
    asking about each one. The overview shows a banner with a button that
    opens the right settings page.
 3. **Read the overview.** "You can safely free" is the total of the
@@ -115,6 +117,7 @@ From the terminal:
 smd things            # what uses space and what can go (read-only)
 smd reclaim           # dry run of the preselected plan
 smd reclaim --yes     # do it
+smd things /Volumes/Backup   # an external disk
 ```
 
 The [user guide](docs/user-guide.md) walks through every screen and command.

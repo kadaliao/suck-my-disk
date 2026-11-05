@@ -19,7 +19,9 @@ public enum Guards {
     /// True if the path must never be deleted or trashed by SuckMyDisk.
     public static func isDenied(_ path: String) -> Bool {
         let p = Firmlinks.userPath((path as NSString).standardizingPath)
-        if p == home || p == "/" || p == "/Users" || p == home + "/Library" { return true }
+        if p == home || p == "/" || p == "/Users" || p == home + "/Library" || p == "/Volumes" { return true }
+        // A disk's own root folder.
+        if ExternalVolumes.mountPoint(of: p).map({ Firmlinks.userPath($0) == p }) ?? false { return true }
         for d in deniedPrefixes where p == d || p.hasPrefix(d + "/") { return true }
         for comp in p.split(separator: "/") {
             if comp == ".git" { return true }
