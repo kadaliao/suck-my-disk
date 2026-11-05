@@ -75,10 +75,11 @@ back.
 
 ## Install
 
-**App.** Download `SuckMyDisk-<version>.zip` from
-[Releases](https://github.com/kadaliao/suck-my-disk/releases/latest), unzip it,
-and move `SuckMyDisk.app` to `/Applications`. Builds are signed with a
-Developer ID and notarized by Apple.
+**App.** Download `SuckMyDisk-<version>.dmg` from
+[Releases](https://github.com/kadaliao/suck-my-disk/releases/latest), open it,
+and drag SuckMyDisk into Applications. (The same app is also there as a
+`.zip`.) Builds are signed with a Developer ID and notarized by Apple, so they
+open without a warning.
 
 **Command line.** Download `smd-<version>-macos.zip` from the same page and put
 `smd` somewhere on your `PATH`:
@@ -89,7 +90,7 @@ mkdir -p ~/.local/bin && mv smd ~/.local/bin/
 smd help
 ```
 
-`SHA256SUMS` on the release page lists checksums for both zips.
+`SHA256SUMS` on the release page lists checksums for every download.
 
 ## Quick start
 

@@ -40,8 +40,25 @@ if [ -n "${NOTARY_PROFILE:-}" ]; then
   rm "$OUT/notarize.zip"
 fi
 
+# The disk image people download: the app next to a link to /Applications.
+echo "▸ dmg"
+DMG="$OUT/SuckMyDisk-$VERSION.dmg"
+mkdir -p "$OUT/dmg"
+ditto "$STAGE/SuckMyDisk.app" "$OUT/dmg/SuckMyDisk.app"
+ln -s /Applications "$OUT/dmg/Applications"
+hdiutil create -quiet -volname "SuckMyDisk $VERSION" -srcfolder "$OUT/dmg" -fs APFS -format ULFO -ov "$DMG"
+rm -rf "$OUT/dmg"
+codesign --sign "$IDENTITY" --timestamp "$DMG"
+if [ -n "${NOTARY_PROFILE:-}" ]; then
+  xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun stapler staple "$DMG"
+  spctl --assess --type open --context context:primary-signature "$DMG"
+fi
+
 ditto -c -k --keepParent "$STAGE/SuckMyDisk.app" "$OUT/SuckMyDisk-$VERSION.zip"
 ditto -c -k "$STAGE/smd" "$OUT/smd-$VERSION-macos.zip"
-(cd "$OUT" && shasum -a 256 ./*.zip | sed 's| \./| |' > SHA256SUMS)
+# Only the archives stay: a loose copy of the app here would show up in Spotlight and Open With.
+rm -rf "$STAGE"
+(cd "$OUT" && shasum -a 256 ./*.dmg ./*.zip | sed 's| \./| |' > SHA256SUMS)
 echo "▸ done"
 ls -lh "$OUT"

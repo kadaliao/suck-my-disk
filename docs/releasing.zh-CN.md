@@ -2,7 +2,7 @@
 
 [English](releasing.md) · **简体中文**
 
-写给维护者。一次发版就是在 GitHub Releases 上放一个签好名、经过公证的 App 压缩包，和一个命令行压缩包，都由 `scripts/release.sh` 构建。
+写给维护者。一次发版就是在 GitHub Releases 上放签好名、经过公证的 App 磁盘映像（DMG）和压缩包，再加一个命令行压缩包，都由 `scripts/release.sh` 构建。
 
 ## 版本号
 
@@ -41,17 +41,18 @@
    NOTARY_PROFILE=<profile-name> scripts/release.sh
    ```
 
-   脚本会重新生成 Xcode 工程，以 Release 配置构建 App，把 `smd` 构建成通用二进制（arm64 + x86_64），给两者都用 hardened runtime 签名，提交公证并等待结果，给 App 钉上公证票据（staple），最后用 `spctl` 检查。没有设置 `NOTARY_PROFILE` 时，构建只签名、不公证；这样的包不要发布。
+   脚本会重新生成 Xcode 工程，以 Release 配置构建 App，把 `smd` 构建成通用二进制（arm64 + x86_64），给两者都用 hardened runtime 签名，提交公证并等待结果，给 App 钉上公证票据（staple），用 `spctl` 检查。接着做磁盘映像（App 旁边放一个「应用程序」的快捷方式），同样签名、公证、钉票据，最后删掉暂存目录里散放的 App。没有设置 `NOTARY_PROFILE` 时，所有产物只签名、不公证；这样的包不要发布。
 
    产物在 `build/release/`：
 
    | 文件 | |
    | --- | --- |
-   | `SuckMyDisk-<version>.zip` | 已钉上公证票据的 App |
+   | `SuckMyDisk-<version>.dmg` | 大多数人下载的磁盘映像 |
+   | `SuckMyDisk-<version>.zip` | 已钉上公证票据的 App 压缩包 |
    | `smd-<version>-macos.zip` | 命令行工具 |
-   | `SHA256SUMS` | 两个压缩包的校验和 |
+   | `SHA256SUMS` | 三个文件的校验和 |
 
-5. **冒烟测试。** 在一台 Mac 上（最好不是构建用的那台）解压、打开，在「关于 SuckMyDisk」里核对版本号，再用命令行压缩包里的 `smd` 跑一下 `smd things`。
+5. **冒烟测试。** 在一台 Mac 上（最好不是构建用的那台）打开 DMG，把 App 拖进「应用程序」再打开，在「关于 SuckMyDisk」里核对版本号，再用命令行压缩包里的 `smd` 跑一下 `smd things`。
 6. **提交并打标签。**
 
    ```sh
@@ -64,13 +65,18 @@
 
    ```sh
    gh release create v<version> \
+     build/release/SuckMyDisk-<version>.dmg \
      build/release/SuckMyDisk-<version>.zip \
      build/release/smd-<version>-macos.zip \
      build/release/SHA256SUMS \
      --title "SuckMyDisk <version>" --notes-file <notes.md>
    ```
 
-   说明开头沿用之前的系统要求那一行：*Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and notarized.*
+   说明开头先放安装说明，再放之前沿用的系统要求那一行：
+
+   > **Install / 安装:** download `SuckMyDisk-<version>.dmg`, open it, and drag SuckMyDisk into Applications. / 下载 `SuckMyDisk-<version>.dmg`，打开后把 SuckMyDisk 拖进「应用程序」。
+   >
+   > Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and notarized.
 
 ## 出问题时
 

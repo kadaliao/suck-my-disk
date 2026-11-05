@@ -70,8 +70,9 @@ SuckMyDisk 告诉你那*是什么*、能不能重新生成、删了实际能腾�
 ## 安装
 
 **App。** 从 [Releases](https://github.com/kadaliao/suck-my-disk/releases/latest)
-下载 `SuckMyDisk-<version>.zip`，解压后把 `SuckMyDisk.app` 拖进「应用程序」
-（`/Applications`）。安装包用 Developer ID 签名，并经过 Apple 公证。
+下载 `SuckMyDisk-<version>.dmg`，打开后把 SuckMyDisk 拖进「应用程序」。
+（同一个 App 也有 `.zip` 版。）安装包用 Developer ID 签名，并经过 Apple 公证，
+打开时不会弹安全警告。
 
 **命令行。** 在同一个页面下载 `smd-<version>-macos.zip`，把 `smd` 放到 `PATH`
 里的某个目录：
@@ -82,7 +83,7 @@ mkdir -p ~/.local/bin && mv smd ~/.local/bin/
 smd help
 ```
 
-发布页上的 `SHA256SUMS` 列出了两个 zip 的校验值。
+发布页上的 `SHA256SUMS` 列出了每个下载文件的校验值。
 
 ## 快速上手
 

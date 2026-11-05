@@ -2,7 +2,8 @@
 
 **English** · [简体中文](releasing.zh-CN.md)
 
-For maintainers. A release is a signed, notarized app zip and a CLI zip on
+For maintainers. A release is a signed, notarized disk image and zip of the
+app, plus a CLI zip, on
 GitHub Releases, built by `scripts/release.sh`.
 
 ## Versions
@@ -55,19 +56,23 @@ place to change it.
    This regenerates the Xcode project, builds the app (Release), builds `smd`
    as a universal binary (arm64 + x86_64), signs both with the hardened
    runtime, submits them for notarization and waits, staples the app, and
-   checks it with `spctl`. Without `NOTARY_PROFILE` the build is signed but
-   not notarized; don't publish that.
+   checks it with `spctl`. It then builds the disk image (the app next to a
+   link to Applications), signs, notarizes and staples that too, and deletes
+   the loose staging copy of the app. Without `NOTARY_PROFILE` everything is
+   signed but not notarized; don't publish that.
 
    Output in `build/release/`:
 
    | File | |
    | --- | --- |
-   | `SuckMyDisk-<version>.zip` | the stapled app |
+   | `SuckMyDisk-<version>.dmg` | the disk image most people download |
+   | `SuckMyDisk-<version>.zip` | the stapled app, zipped |
    | `smd-<version>-macos.zip` | the CLI |
-   | `SHA256SUMS` | checksums of both zips |
+   | `SHA256SUMS` | checksums of all three |
 
-5. **Smoke test** the zip on a Mac (ideally one that didn't build it): unzip,
-   open, check the version in About, and run `smd things` from the CLI zip.
+5. **Smoke test** the DMG on a Mac (ideally one that didn't build it): open
+   it, drag the app to Applications, open it, check the version in About, and
+   run `smd things` from the CLI zip.
 6. **Commit and tag.**
 
    ```sh
@@ -81,14 +86,22 @@ place to change it.
 
    ```sh
    gh release create v<version> \
+     build/release/SuckMyDisk-<version>.dmg \
      build/release/SuckMyDisk-<version>.zip \
      build/release/smd-<version>-macos.zip \
      build/release/SHA256SUMS \
      --title "SuckMyDisk <version>" --notes-file <notes.md>
    ```
 
-   Start the notes with the requirements line used so far: *Requires macOS 26
-   (Apple silicon or Intel). Signed with a Developer ID and notarized.*
+   Start the notes with the install line and the requirements line used so
+   far:
+
+   > **Install / 安装:** download `SuckMyDisk-<version>.dmg`, open it, and drag
+   > SuckMyDisk into Applications. / 下载 `SuckMyDisk-<version>.dmg`，打开后把
+   > SuckMyDisk 拖进「应用程序」。
+   >
+   > Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and
+   > notarized.
 
 ## If something fails
 

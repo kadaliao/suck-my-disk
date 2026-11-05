@@ -18,6 +18,8 @@ All notable changes to SuckMyDisk. The format follows
   contributing guide, release process, security policy, code of conduct, and
   issue and pull request templates, with screenshots in both languages.
 - MIT license.
+- Releases include a signed, notarized `.dmg`: open it and drag the app into
+  Applications. Added to 0.2.0 as well.
 
 ## [0.2.0] - 2026-11-04
 
