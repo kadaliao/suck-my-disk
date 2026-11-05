@@ -21,6 +21,8 @@ xcodebuild -project SuckMyDisk.xcodeproj -scheme SuckMyDisk -configuration Relea
   CODE_SIGN_IDENTITY="$IDENTITY" OTHER_CODE_SIGN_FLAGS="--timestamp" CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
   build -quiet
 ditto build/DerivedData/Build/Products/Release/SuckMyDisk.app "$STAGE/SuckMyDisk.app"
+# Installs come from GitHub: leave no runnable copy of the app in the build folder.
+rm -rf build/DerivedData/Build/Products/Release/SuckMyDisk.app
 
 echo "▸ smd"
 SWIFT_ARGS=(--package-path Packages/DiskCore -c release --arch arm64 --arch x86_64)

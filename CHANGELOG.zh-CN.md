@@ -6,6 +6,10 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.3.0] - 2026-11-05
+
+需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。索引格式没变，升级后不用重新扫描。
+
 ### 新增
 
 - **演示模式。** `--demo` 显示一套虚构的项目、缓存和模型，不读也不写磁盘，「清理」只是做做样子。文档里的截图都来自演示模式（`scripts/doc-screenshots.sh`）。
@@ -52,6 +56,7 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.2.0...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kadaliao/suck-my-disk/releases/tag/v0.1.0

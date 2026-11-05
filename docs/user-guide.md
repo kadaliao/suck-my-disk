@@ -563,8 +563,8 @@ running SuckMyDisk first, then:
 open -n -a SuckMyDisk --args --demo
 ```
 
-Demo mode was added after 0.2.0; until the next release, build from source to
-use it. The screenshots in this guide come from it.
+Demo mode needs SuckMyDisk 0.3.0 or later. The screenshots in this guide come
+from it.
 
 **Upgrading made the first launch slow.**
 When a release changes the index format, the first launch does one full scan.
