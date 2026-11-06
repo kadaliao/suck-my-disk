@@ -265,8 +265,8 @@ struct CleanSheet: View {
                 }
             }
             .frame(maxHeight: 360)
-            Text(L("iCloud、照片、git 跟踪的文件和 7 天内改过的东西不会被碰，执行前每一项都会再检查一遍。",
-                   "iCloud, Photos, git-tracked files and anything changed in the last 7 days are never touched; every item is re-checked first."))
+            Text(L("iCloud、照片、git 跟踪的文件和正在运行的程序在用的东西不会被碰；7 天内改过的，只删你亲手勾上的可再生项。执行前每一项都会再检查一遍。",
+                   "iCloud, Photos, git-tracked files and anything a running program uses are never touched; of things changed in the last 7 days, only regenerable items you ticked yourself are deleted. Every item is re-checked first."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {

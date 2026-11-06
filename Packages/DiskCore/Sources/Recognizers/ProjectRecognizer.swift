@@ -132,7 +132,10 @@ public enum ProjectRecognizer {
                 }
                 if a.needsGitCheck && !a.strong { continue }   // not a build output after all
                 if item.bytes < 1_000_000 { continue }
-                if recent { item.warnings.append(L("7 天内有改动", "changed in the last 7 days")) }
+                if recent {
+                    let d = Fmt.stamp(Date(timeIntervalSince1970: TimeInterval(n.t_newest)), now: ctx.now)
+                    item.warnings.append(L("\(d) 还有改动，所以没预选", "changed \(d), so not preselected"))
+                }
                 if a.kind == "venv" {
                     venvs.append(VenvRef(path: path, project: p.path, sleeping: sleeping, itemID: item.id))
                 }

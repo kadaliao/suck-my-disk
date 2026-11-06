@@ -54,6 +54,7 @@ public enum DevCacheRecognizer {
                 }
             }
         }
+        if let t = npx(ctx) { things.append(t) }
         if let t = simulators(ctx) { things.append(t) }
         if let t = derivedData(ctx) { things.append(t) }
         if let t = docker(ctx) { things.append(t) }
@@ -141,6 +142,77 @@ public enum DevCacheRecognizer {
               "clearing alone frees \(Fmt.bytes($0.total)); \(Fmt.bytes($0.trapped)) is shared with venvs")
         }
         return Thing(id: "cache:uv", kind: .devCache, title: "uv cache", path: dir, bytes: bytes, detail: detail, items: items)
+    }
+
+    // MARK: npx
+
+    /// Packages npx installed to run them, one folder per install under ~/.npm/_npx.
+    /// `npm cache clean` leaves them alone, and they pile up: each new release of a tool
+    /// run with npx gets a folder of its own. One item per package, all its versions together.
+    /// Left out: folders a running program uses (MCP servers often run this way) and
+    /// folders from the last 7 days, which Clean Up would skip anyway.
+    static func npx(_ ctx: RecognizeContext, base: String? = nil) -> Thing? {
+        let base = base ?? ctx.home + "/.npm/_npx"
+        guard let node = ctx.tree.find(base) else { return nil }
+        let total = ctx.tree.size(node)
+        guard total >= 50_000_000, let programs = Guards.runningPrograms() else { return nil }
+        struct Install { var path: String; var bytes: UInt64; var version: String? }
+        var packages: [String: [Install]] = [:]
+        var running = 0, recent = 0
+        func json(_ p: String) -> [String: Any]? {
+            (try? Data(contentsOf: URL(fileURLWithPath: p))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        }
+        for c in ctx.tree.children(node) where ctx.tree.node(c).pointee.flags & SM_F_DIR != 0 {
+            let path = ctx.tree.path(c)
+            if Guards.program(using: path, in: programs) != nil { running += 1; continue }
+            if Guards.recentChange(path, now: ctx.now) != nil { recent += 1; continue }
+            let deps = ((json(path + "/package.json")?["dependencies"] as? [String: Any])?.keys).map { $0.sorted() } ?? []
+            let manifests = deps.map { json(path + "/node_modules/" + $0 + "/package.json") }
+            // Named after what npx ran: the package with a command, when several were asked for.
+            let main = manifests.firstIndex { $0?["bin"] != nil } ?? 0
+            let name = deps.isEmpty ? L("（空）", "(empty)")
+                : deps.count > 1 ? L("\(deps[main]) 等 \(deps.count) 个包", "\(deps[main]) and \(deps.count - 1) more") : deps[main]
+            let version = deps.isEmpty ? nil : manifests[main]?["version"] as? String
+            packages[name, default: []].append(Install(path: path, bytes: ctx.tree.size(c), version: version))
+        }
+        let restore = L("下次用 npx 运行时会重新下载", "npx downloads it again the next time it runs")
+        func size(_ installs: [Install]) -> UInt64 { installs.reduce(0) { $0 + $1.bytes } }
+        let count = packages.count
+        // Packages under 10 MB share one row.
+        let small = packages.filter { size($0.value) < 10_000_000 }
+        if small.count > 1 { for name in small.keys { packages[name] = nil } }
+        var items = packages.map { name, installs -> ReclaimItem in
+            let bytes = size(installs)
+            let versions = Set(installs.compactMap(\.version)).sorted { $0.compare($1, options: .numeric) == .orderedAscending }
+            let list = versions.isEmpty ? "" : L("：", ": ") + versions.joined(separator: L("、", ", "))
+            let reason = installs.count == 1
+                ? L("npx 装来运行的包", "installed by npx to run it") + (versions.first.map { " · " + $0 } ?? "")
+                : versions.count == installs.count
+                ? L("npx 装过 \(installs.count) 个版本", "\(installs.count) versions installed by npx") + list
+                : L("npx 装过 \(installs.count) 份", "installed \(installs.count) times by npx") + list
+            return ReclaimItem(
+                id: "npx:" + name, label: name, path: installs.count == 1 ? installs[0].path : base, bytes: bytes,
+                tier: .regenerable,
+                action: installs.count == 1 ? .delete(path: installs[0].path) : .deleteAll(paths: installs.map(\.path)),
+                restore: restore, reason: reason, preselected: true)
+        }
+        if small.count > 1 {
+            let names = small.keys.sorted()
+            items.append(ReclaimItem(
+                id: "npx:small", label: L("其他 \(small.count) 个小包", "\(small.count) small packages"), path: base,
+                bytes: small.values.reduce(0) { $0 + size($1) }, tier: .regenerable,
+                action: .deleteAll(paths: small.values.flatMap { $0.map(\.path) }.sorted()),
+                restore: restore, reason: names.prefix(6).joined(separator: L("、", ", ")) + (names.count > 6 ? "…" : ""),
+                preselected: true))
+        }
+        guard !items.isEmpty else { return nil }
+        var kept: [String] = []
+        if running > 0 { kept.append(L("正在运行的 \(running) 个", "\(running) in use by a running program")) }
+        if recent > 0 { kept.append(L("7 天内装的 \(recent) 个", "\(recent) installed in the last 7 days")) }
+        let detail = L("\(count) 个包，用 npx 运行时会重新下载", "\(count) packages, downloaded again when npx runs them")
+            + (kept.isEmpty ? "" : L("；保留了", "; kept ") + kept.joined(separator: L("、", ", ")))
+        return Thing(id: "cache:npx", kind: .devCache, title: L("npx 缓存", "npx cache"), path: base, bytes: total,
+                     detail: detail, items: items.sorted { $0.bytes > $1.bytes })
     }
 
     // MARK: Simulators

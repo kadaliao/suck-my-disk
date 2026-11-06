@@ -547,10 +547,11 @@ final class AppModel {
         var failed: [(String, String)] = []
         var doneIDs: Set<String> = []
         let store = try? Store()
+        let chosen = userOn   // ticked by hand, not preselected
         for (n, item) in items.enumerated() {
             phase = .cleaning(current: item.label, done: n, total: items.count)
             let outcome = await Task.detached(priority: .userInitiated) {
-                Executor(store: store, force: false, log: { _ in }).run([item])[0]
+                Executor(store: store, chosen: chosen, log: { _ in }).run([item])[0]
             }.value
             switch outcome.status {
             case .done: done += 1; doneIDs.insert(item.id); doneIDs.formUnion(item.covers)

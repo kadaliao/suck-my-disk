@@ -17,11 +17,18 @@ public final class Executor {
 
     let store: Store?
     let force: Bool
+    let chosen: Set<String>
     let log: (String) -> Void
 
-    public init(store: Store?, force: Bool = false, log: @escaping (String) -> Void = { print($0) }) {
+    /// `force` lifts the 7-day rule for every item. `chosen` holds the items the person picked
+    /// themselves: the regenerable ones among them skip the rule too, since they asked for it and
+    /// nothing is lost that can't be rebuilt. Preselected items keep it, so anything that changed
+    /// after the scan is left alone.
+    public init(store: Store?, force: Bool = false, chosen: Set<String> = [],
+                log: @escaping (String) -> Void = { print($0) }) {
         self.store = store
         self.force = force
+        self.chosen = chosen
         self.log = log
     }
 
@@ -39,22 +46,56 @@ public final class Executor {
         }
     }
 
-    func check(_ path: String, isCommandTarget: Bool = false) -> String? {
+    /// Commands an action would run.
+    static func commands(_ a: ReclaimAction) -> [[String]] {
+        switch a {
+        case .command(let argv, _): return [argv]
+        case .compound(let acts): return acts.flatMap(commands)
+        default: return []
+        }
+    }
+
+    /// Tools whose cache commands wait for every running copy to exit:
+    /// `uv cache prune` sits on the cache lock for up to 5 minutes, then fails.
+    static let lockingTools: Set<String> = ["uv", "uvx"]
+
+    /// A running copy of the tool `argv` runs, if that tool waits for its other copies.
+    static func busy(_ argv: [String], programs: [Guards.Program]) -> Guards.Program? {
+        guard let tool = argv.first.map({ ($0 as NSString).lastPathComponent }), lockingTools.contains(tool) else { return nil }
+        return programs.first { lockingTools.contains($0.name) }
+    }
+
+    /// `programs`: what is running, nil if that couldn't be read.
+    func check(_ path: String, programs: [Guards.Program]?, recentOK: Bool) -> String? {
         if Guards.isDenied(path) { return L("受保护的位置", "protected location") }
         var st = stat()
         guard lstat(path, &st) == 0 else { return L("已经不存在", "no longer exists") }
         if (st.st_mode & S_IFMT) == S_IFLNK { return L("是符号链接", "is a symlink") }
         if Guards.hasTrackedFiles(path) { return L("里面有 git 跟踪的文件", "contains git-tracked files") }
-        if !force, let d = Guards.lastChange(path), Date().timeIntervalSince(d) < 7 * 86400 {
-            return L("7 天内有改动（加 --force 可强制）", "changed in the last 7 days (use --force)")
+        // Fails closed, like the git check.
+        guard let programs else { return L("没法确认有没有程序在用", "can't tell whether a program is using it") }
+        if let p = Guards.program(using: path, in: programs) {
+            return L("\(p.summary)（PID \(p.pid)）正在用", "in use by \(p.summary) (PID \(p.pid))")
         }
+        if !recentOK, let d = Guards.recentChange(path) { return Guards.waitNote(changed: d) }
         return nil
     }
 
     func runOne(_ item: ReclaimItem) -> Outcome {
-        for p in Self.paths(item.action) {
-            if let why = check(p) {
+        let paths = Self.paths(item.action), argvs = Self.commands(item.action)
+        let programs = paths.isEmpty && argvs.isEmpty ? [] : Guards.runningPrograms()
+        let recentOK = force || (item.tier == .regenerable && chosen.contains(item.id))
+        for p in paths {
+            if let why = check(p, programs: programs, recentOK: recentOK) {
                 return finish(item, .skipped, 0, "\(Fmt.home(p)): \(why)", before: 0, after: 0)
+            }
+        }
+        for argv in argvs {
+            if let p = programs.flatMap({ Self.busy(argv, programs: $0) }) {
+                return finish(item, .skipped, 0,
+                              L("\(p.summary)（PID \(p.pid)）还在运行，\(argv[0]) 要等它退出才能清缓存",
+                                "\(p.summary) (PID \(p.pid)) is still running; \(argv[0]) can't clean its cache until it exits"),
+                              before: 0, after: 0)
             }
         }
         var detail: [String] = []
@@ -91,7 +132,9 @@ public final class Executor {
             } catch { return "\(error.localizedDescription)" }
         case .command(let argv, let cwd):
             log("  $ " + argv.joined(separator: " "))
-            let r = Shell.run(argv, cwd: cwd, timeout: 3600, stream: true)
+            // If a uv starts after the check above, give up on its lock in 30 s rather than 5 minutes.
+            let env = Self.lockingTools.contains((argv[0] as NSString).lastPathComponent) ? ["UV_LOCK_TIMEOUT": "30"] : [:]
+            let r = Shell.run(argv, cwd: cwd, timeout: 3600, stream: true, env: env)
             return r.ok ? nil : "exit \(r.status): \(r.stderr.suffix(400).trimmingCharacters(in: .whitespacesAndNewlines))"
         case .compound(let acts):
             for x in acts { if let e = perform(x) { return e } }

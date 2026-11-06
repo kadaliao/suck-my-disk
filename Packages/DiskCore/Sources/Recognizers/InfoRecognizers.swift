@@ -83,9 +83,11 @@ public enum ModelRecognizer {
             for pub in tree.children(node) {
                 for repo in tree.children(pub) where tree.size(repo) >= 100_000_000 {
                     let path = tree.path(repo)
-                    items.append(ReclaimItem(id: "lms:" + path, label: tree.name(pub) + "/" + tree.name(repo), path: path,
-                                             bytes: tree.size(repo), tier: .yours, action: .trash(path: path),
-                                             reason: L("LM Studio 模型", "LM Studio model"), preselected: false))
+                    var item = ReclaimItem(id: "lms:" + path, label: tree.name(pub) + "/" + tree.name(repo), path: path,
+                                           bytes: tree.size(repo), tier: .yours, action: .trash(path: path),
+                                           reason: L("LM Studio 模型", "LM Studio model"), preselected: false)
+                    if let d = Guards.recentChange(path, now: ctx.now) { item.warnings.append(Guards.waitNote(changed: d)) }
+                    items.append(item)
                 }
             }
             if !items.isEmpty {

@@ -1,3 +1,4 @@
+import AVFoundation
 import CFastScan
 import CoreGraphics
 import Foundation
@@ -71,6 +72,58 @@ final class Fixture {
         if let cameraMake { props[kCGImagePropertyTIFFDictionary] = [kCGImagePropertyTIFFMake: cameraMake] }
         CGImageDestinationAddImage(dest, ctx.makeImage()!, props as CFDictionary)
         #expect(CGImageDestinationFinalize(dest))
+    }
+
+    /// `count` numbered PNG frames of 170 KB each, so 300 of them pass the 50 MB bar.
+    func frames(_ dir: String, count: Int) throws {
+        let ctx = CGContext(data: nil, width: 320, height: 180, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        let px = ctx.data!.assumingMemoryBound(to: UInt8.self)
+        for i in 0..<(ctx.bytesPerRow * 180) { px[i] = .random(in: 0...255) }   // noise doesn't compress
+        let png = NSMutableData()
+        let dest = CGImageDestinationCreateWithData(png, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, ctx.makeImage()!, nil)
+        #expect(CGImageDestinationFinalize(dest))
+        try FileManager.default.createDirectory(atPath: path(dir), withIntermediateDirectories: true)
+        for i in 0..<count { FileManager.default.createFile(atPath: path(dir + String(format: "/%05d.png", i)), contents: png as Data) }
+    }
+
+    /// An H.264 video with exactly `frames` frames at `fps`.
+    func video(_ rel: String, frames: Int, fps: Int32 = 24) async throws {
+        let p = path(rel)
+        try FileManager.default.createDirectory(atPath: (p as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let w = try AVAssetWriter(outputURL: URL(fileURLWithPath: p), fileType: .mp4)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 64, AVVideoHeightKey: 36,
+        ])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: 64, kCVPixelBufferHeightKey as String: 36,
+        ])
+        w.add(input)
+        #expect(w.startWriting())
+        w.startSession(atSourceTime: .zero)
+        for i in 0..<frames {
+            while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
+            var buf: CVPixelBuffer?
+            CVPixelBufferPoolCreatePixelBuffer(nil, adaptor.pixelBufferPool!, &buf)
+            #expect(adaptor.append(buf!, withPresentationTime: CMTime(value: CMTimeValue(i), timescale: fps)))
+        }
+        input.markAsFinished()
+        w.endSession(atSourceTime: CMTime(value: CMTimeValue(frames), timescale: fps))
+        await w.finishWriting()
+        #expect(w.status == .completed, "\(String(describing: w.error))")
+    }
+
+    /// Starts a program whose command line names `rel`, like an MCP server npx runs. Stop it with terminate().
+    func runningProgram(using rel: String) throws -> Process {
+        try file(rel, text: "")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/tail")
+        p.arguments = ["-f", path(rel)]
+        p.standardOutput = FileHandle.nullDevice
+        try p.run()
+        return p
     }
 }
 
@@ -241,6 +294,61 @@ final class Fixture {
         #expect(report.things.allSatisfy { $0.kind == .project || $0.kind == .media })
     }
 
+    /// Frames match only the video rendered from them. Each case below matched under the old
+    /// rule (frame count within 3% of any video found going up to the project folder).
+    @Test func framesMatchOnlyTheirOwnVideo() async throws {
+        let f = try Fixture()
+        try f.frames("show/ep1/frames", count: 320)
+        try f.frames("show/ep2/frames", count: 321)    // its own video is gone; ep1's is one frame off
+        try f.frames("pix/frames", count: 330)
+        try f.frames("solo/render", count: 310)
+        try await f.video("show/ep1/ep1.mp4", frames: 320)
+        try await f.video("solo/render/final.mp4", frames: 310)     // saved among its own frames
+        try await f.video("pix/out/near.mp4", frames: 340)          // 2.9% off
+        try f.file("wbd/repo/.git/HEAD", text: "ref")
+        try await f.video("wbd/repo/build/body.mp4", frames: 330)   // same count, but another project's
+        let things = await FrameSequenceRecognizer.recognize(context(f.scan()))
+        func tier(_ rel: String) -> Tier? {
+            things.flatMap(\.items).first { $0.path == f.path(rel) }?.tier
+        }
+        #expect(tier("show/ep1/frames") == .regenerable)
+        #expect(things.flatMap(\.items).first { $0.path == f.path("show/ep1/frames") }?.reason.contains("ep1.mp4") == true)
+        #expect(tier("solo/render") == .regenerable)
+        #expect(tier("show/ep2/frames") == .yours)
+        #expect(tier("pix/frames") == .yours)
+    }
+
+    @Test func npxPackages() throws {
+        let f = try Fixture()
+        func install(_ hash: String, _ dep: String, _ version: String) throws {
+            try f.file("npx/\(hash)/package.json", text: #"{"dependencies":{"\#(dep)":"*"}}"#)
+            try f.file("npx/\(hash)/node_modules/\(dep)/package.json", text: #"{"version":"\#(version)"}"#)
+            try f.file("npx/\(hash)/node_modules/\(dep)/big.bin", mb: 20)
+        }
+        try install("aaa", "cowsay", "1.6.0")
+        try install("bbb", "cowsay", "1.5.0")
+        try install("ccc", "some-mcp-server", "2.0.0")
+        // Asked for several packages at once: named after the one with a command.
+        try f.file("npx/ddd/package.json", text: #"{"dependencies":{"a-plugin":"*","the-tool":"*"}}"#)
+        try f.file("npx/ddd/node_modules/a-plugin/package.json", text: #"{"version":"1.0.0"}"#)
+        try f.file("npx/ddd/node_modules/the-tool/package.json", text: #"{"version":"3.1.0","bin":{"the-tool":"cli.js"}}"#)
+        try f.file("npx/ddd/node_modules/the-tool/big.bin", mb: 20)
+        let server = try f.runningProgram(using: "npx/ccc/node_modules/some-mcp-server/index.js")
+        defer { server.terminate() }
+        let tree = f.scan()
+        let later = RecognizeContext(tree: tree, activity: ActivityIndex(), now: Date().addingTimeInterval(30 * 86400))
+        let t = try #require(DevCacheRecognizer.npx(later, base: f.path("npx")))
+        let cowsay = try #require(t.items.first { $0.label == "cowsay" })
+        #expect(t.items.count == 2)   // the running one is left out
+        #expect(t.items.contains { $0.label.hasPrefix("the-tool ") && $0.reason.contains("3.1.0") })
+        guard case .deleteAll(let paths) = cowsay.action else { Issue.record("one item for both versions"); return }
+        #expect(Set(paths) == [f.path("npx/aaa"), f.path("npx/bbb")])
+        #expect(cowsay.reason.contains("1.5.0, 1.6.0") || cowsay.reason.contains("1.5.0、1.6.0"))
+        #expect(cowsay.preselected)
+        // Installed just now: Clean Up would skip them, so nothing is offered.
+        #expect(DevCacheRecognizer.npx(context(tree), base: f.path("npx")) == nil)
+    }
+
     @Test func frameSequenceVersusCameraBurst() throws {
         let f = try Fixture()
         for i in 0..<320 { try f.png(String(format: "render/frames/%05d.png", i)) }
@@ -300,13 +408,59 @@ final class Fixture {
         #expect(!FileManager.default.fileExists(atPath: f.path("plain/node_modules")))
     }
 
+    @Test func runningProgramsKeepTheirFiles() throws {
+        let f = try Fixture()
+        try f.file("npx/ccc/node_modules/x.bin", mb: 1)
+        let server = try f.runningProgram(using: "npx/ccc/node_modules/server.js")
+        defer { server.terminate() }
+        let item = ReclaimItem(id: "n", label: "npx", path: f.path("npx/ccc"), bytes: 1, tier: .regenerable,
+                               action: .delete(path: f.path("npx/ccc")), reason: "", preselected: true)
+        let o = Executor(store: nil, force: true, chosen: ["n"], log: { _ in }).run([item])[0]
+        #expect(o.status == .skipped)
+        #expect(o.message.contains("tail") && o.message.contains("PID \(server.processIdentifier)"))   // says who
+        #expect(FileManager.default.fileExists(atPath: f.path("npx/ccc/node_modules/x.bin")))
+        // A folder whose name only starts the same is not in use.
+        #expect(Guards.program(using: f.path("npx/cc"), in: Guards.runningPrograms() ?? []) == nil)
+    }
+
     @Test func recentChangesNeedForce() throws {
         let f = try Fixture()
         try f.file("p/node_modules/x.bin", mb: 1)
         let item = ReclaimItem(id: "r", label: "nm", path: f.path("p/node_modules"), bytes: 1, tier: .regenerable,
                                action: .delete(path: f.path("p/node_modules")), reason: "", preselected: true)
-        #expect(Executor(store: nil, force: false, log: { _ in }).run([item])[0].status == .skipped)
+        let o = Executor(store: nil, force: false, log: { _ in }).run([item])[0]
+        #expect(o.status == .skipped)
+        // Says when it can go, and nothing about a flag the app doesn't have.
+        let changed = try #require(Guards.lastChange(f.path("p/node_modules")))
+        #expect(o.message.contains(Fmt.stamp(changed + Guards.quietPeriod)) && !o.message.contains("--force"))
         #expect(FileManager.default.fileExists(atPath: f.path("p/node_modules")))
+    }
+
+    /// Ticked by hand, a regenerable item goes even if it changed this week; your own files don't.
+    @Test func handPickedRegenerableSkipsTheWait() throws {
+        let f = try Fixture()
+        try f.file("p/target/x.bin", mb: 1)
+        try f.file("mine/clip.mov", mb: 1)
+        let build = ReclaimItem(id: "b", label: "target", path: f.path("p/target"), bytes: 1, tier: .regenerable,
+                                action: .delete(path: f.path("p/target")), reason: "", preselected: false)
+        let mine = ReclaimItem(id: "m", label: "clip", path: f.path("mine"), bytes: 1, tier: .yours,
+                               action: .trash(path: f.path("mine")), reason: "", preselected: false)
+        let out = Executor(store: nil, chosen: ["b", "m"], log: { _ in }).run([build, mine])
+        #expect(out[0].status == .done)
+        #expect(!FileManager.default.fileExists(atPath: f.path("p/target")))
+        #expect(out[1].status == .skipped)
+        #expect(FileManager.default.fileExists(atPath: f.path("mine/clip.mov")))
+    }
+
+    /// A long `uv run` holds the cache lock: say so at once instead of waiting 5 minutes for it.
+    @Test func uvWaitsForNoOne() {
+        let running = [Guards.Program(pid: 7, command: "/bin/zsh -c uv run x"),
+                       Guards.Program(pid: 29866, command: "uv run --frozen app --config config.yaml")]
+        #expect(Executor.busy(["uv", "cache", "prune"], programs: running)?.pid == 29866)
+        #expect(Executor.busy(["uv", "cache", "prune"], programs: [running[0]]) == nil)   // a shell that mentions uv
+        #expect(Executor.busy(["npm", "cache", "clean", "--force"], programs: running) == nil)
+        #expect(running[1].summary == "uv run --frozen app --config config.yaml")
+        #expect(Guards.Program(pid: 1, command: "/Users/me/x/target/release/mytool serve --stdio").summary == "mytool serve --stdio")
     }
 
     /// npm is `#!/usr/bin/env node`; launched from Finder, the app's PATH has no node.

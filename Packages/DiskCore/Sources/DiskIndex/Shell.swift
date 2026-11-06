@@ -37,9 +37,10 @@ public enum Shell {
     }
 
     /// Runs a command and captures output. Kills it after `timeout` seconds.
+    /// `env` adds to (or overrides) the inherited environment.
     @discardableResult
     public static func run(_ argv: [String], cwd: String? = nil, timeout: TimeInterval = 60,
-                           stream: Bool = false) -> ShellResult {
+                           stream: Bool = false, env extra: [String: String] = [:]) -> ShellResult {
         guard let exe = which(argv[0]) else {
             return ShellResult(status: 127, stdout: "", stderr: "\(argv[0]): not found")
         }
@@ -48,6 +49,7 @@ public enum Shell {
         p.arguments = Array(argv.dropFirst())
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = childPATH(for: exe)
+        env.merge(extra) { _, new in new }
         p.environment = env
         if let cwd { p.currentDirectoryURL = URL(fileURLWithPath: cwd) }
         let out = Pipe(), err = Pipe()

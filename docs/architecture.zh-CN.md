@@ -105,7 +105,7 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 
 1. `ActivityIndex` 收集「上次在这里干活是什么时候」的信号：Claude Code 和 pi 的会话目录、Codex 会话的工作目录、fish 和 zsh 历史里的 `cd` 命令，以及 Spotlight 的上次使用日期。
 2. `ProjectRecognizer` 遍历一遍树，找出项目（git 仓库或有清单文件的目录）和它们的产物。只有大到值得列出的通用目录（`build`、`dist`、`out`）才会并行跑 `git check-ignore` / `git ls-files`。最后决定哪些项预选。
-3. `FrameSequenceRecognizer` 找出图片很多的目录，读几张图片的头信息，再在附近找一个时长 × 帧率与帧数吻合的视频。
+3. `FrameSequenceRecognizer` 找出图片很多的目录，读几张图片的头信息，再在附近找一个帧数相同的视频（视频轨的时长 × 帧率，相差不超过 3 帧或 0.5%）。从帧往上找时，跳过别的项目（有 git 仓库或清单文件的文件夹）和装着别组帧的文件夹；帧数一样时选最新的视频。
 4. 其余交给 `DevCacheRecognizer`、`ModelRecognizer`、`AppDataRecognizer` 和 `SystemRecognizer`。
 5. `refineShared` 对估计值只是下限的大项做精确计算。
 
@@ -122,7 +122,7 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 
 ## 执行（`Reclaim`）
 
-`Executor` 一项一项地执行。每一项动手之前，对它要碰的每个路径都检查一遍：`Guards.isDenied`、路径还在且不是符号链接、git 没有跟踪里面的任何文件（拿不准就当作有），以及 7 天规则（除非 `force`）。然后才动手：删除用 `removefile`，进废纸篓用 `FileManager.trashItem`，工具命令通过 `Shell` 运行。删 Python 虚拟环境之前，会先记下 `pyvenv.cfg` 和一份 `pip freeze`。执行前后各量一次可用空间，所有结果都写进日志。
+`Executor` 一项一项地执行。每一项动手之前，对它要碰的每个路径都检查一遍：`Guards.isDenied`、路径还在且不是符号链接、git 没有跟踪里面的任何文件（拿不准就当作有）、没有正在运行的程序的命令行提到它（用 `ps` 查，同样拿不准就不删），以及 7 天规则。`force` 对所有条目解除这条规则；`chosen` 是用户亲手勾的条目，其中可再生的不受它限制，所以扫描之后又改过的预选条目照样不动。跑 uv 的命令前还会确认没有 uv 在运行，因为 uv 会等缓存的锁；同时设上 `UV_LOCK_TIMEOUT`，防止这期间正好又起了一个。然后才动手：删除用 `removefile`，进废纸篓用 `FileManager.trashItem`，工具命令通过 `Shell` 运行。删 Python 虚拟环境之前，会先记下 `pyvenv.cfg` 和一份 `pip freeze`。执行前后各量一次可用空间，所有结果都写进日志。
 
 ## 存储
 
@@ -155,6 +155,6 @@ App 和命令行里所有给用户看的文字，都通过 `Fmt.swift` 里的 `L
 
 - `ScannerTests`：克隆和硬链接的计数、折叠和标记位、快照的保存与读回、合成树、firmlinks。
 - `AccountingTests`：同时释放 uv 缓存和 `.venv`。
-- `RecognizerTests`：项目产物和恢复命令、活跃项目不预选、外接磁盘上的项目（不含盘上的点文件夹）、渲染帧序列和相机连拍的区分。
-- `SafetyTests`：受保护位置、被包含的项、执行器拒绝受保护路径和 git 跟踪的路径、7 天规则、Node 脚本在 App 的精简 PATH 下也能找到 `node`。
+- `RecognizerTests`：项目产物和恢复命令、活跃项目不预选、外接磁盘上的项目（不含盘上的点文件夹）、帧只和自己的视频配对、npx 的包、渲染帧序列和相机连拍的区分。
+- `SafetyTests`：受保护位置、被包含的项、执行器拒绝受保护路径和 git 跟踪的路径、正在运行的程序在用的文件、7 天规则和什么情况下不受它限制、uv 不再干等别的 uv 进程、Node 脚本在 App 的精简 PATH 下也能找到 `node`。
 - `LiveIndexTests`：打过补丁的树和重新扫描的结果一致、保存后的树能继续增长、大目录排队等待、会弹授权的目录从不被打开、FSEvents 驱动更新。

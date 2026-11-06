@@ -246,7 +246,8 @@ func currentReport() async -> Report? {
     return await makeReport(rescan: args.has("rescan"))
 }
 
-func runPlan(_ items: [ReclaimItem], execute: Bool, disk: ExternalVolume? = nil) {
+/// `chosen`: items the person named with --select or --add.
+func runPlan(_ items: [ReclaimItem], execute: Bool, disk: ExternalVolume? = nil, chosen: Set<String> = []) {
     let total = items.reduce(UInt64(0)) { $0 + $1.estimate }
     print(L("计划腾出 ≈ \(Fmt.bytes(total))，共 \(items.count) 项：", "Plan frees ≈ \(Fmt.bytes(total)) in \(items.count) items:"))
     for i in items {
@@ -267,7 +268,7 @@ func runPlan(_ items: [ReclaimItem], execute: Bool, disk: ExternalVolume? = nil)
     }
     print("")
     let store = try? Store()
-    let ex = Executor(store: store, force: args.has("force"))
+    let ex = Executor(store: store, force: args.has("force"), chosen: chosen)
     let mount = disk?.path ?? Firmlinks.dataRoot
     let before = VolumeInfo.freeBytes(mount)
     var done = 0
@@ -349,16 +350,20 @@ case "reclaim":
     guard let report = current else { exit(1) }
     let numbered = numberItems(report)
     var selected: Set<String>
+    var chosen: Set<String> = []
     if let sel = args.values["select"] {
         let nums = Set(sel.split(separator: ",").compactMap { Int($0) })
         selected = Set(numbered.filter { nums.contains($0.number) }.map(\.item.id))
+        chosen = selected
     } else {
         selected = Set(numbered.filter(\.item.preselected).map(\.item.id))
     }
-    for n in args.ints("add") { if let x = numbered.first(where: { $0.number == n }) { selected.insert(x.item.id) } }
+    for n in args.ints("add") {
+        if let x = numbered.first(where: { $0.number == n }) { selected.insert(x.item.id); chosen.insert(x.item.id) }
+    }
     for n in args.ints("remove") { if let x = numbered.first(where: { $0.number == n }) { selected.remove(x.item.id) } }
     let plan = Planner.plan(things: report.things, selected: selected)
-    runPlan(plan.items, execute: args.has("yes"), disk: disk)
+    runPlan(plan.items, execute: args.has("yes"), disk: disk, chosen: chosen)
 
 case "hibernate":
     guard let target = args.positional.first.map({ (($0 as NSString).expandingTildeInPath as NSString).standardizingPath }) else {
@@ -370,7 +375,7 @@ case "hibernate":
     }
     let items = project.items.filter { $0.tier == .regenerable }
     print(L("休眠 \(project.title)：删除可再生的产物，源码和 git 不动。", "Hibernating \(project.title): rebuildable artifacts only; source and git stay."))
-    runPlan(items, execute: args.has("yes"))
+    runPlan(items, execute: args.has("yes"), chosen: Set(items.map(\.id)))   // named by hand
 
 case "wake":
     guard let target = args.positional.first.map({ (($0 as NSString).expandingTildeInPath as NSString).standardizingPath }) else {

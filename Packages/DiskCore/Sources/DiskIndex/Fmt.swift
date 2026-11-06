@@ -32,6 +32,15 @@ public enum Fmt {
         return L("\(days / 365) 年前", "\(days / 365)y ago")
     }
 
+    /// "10-31 18:07" / "Oct 31, 18:07", with the year when it is not this year.
+    public static func stamp(_ date: Date, now: Date = Date()) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        let year = Calendar.current.component(.year, from: date) != Calendar.current.component(.year, from: now)
+        f.dateFormat = isChinese ? (year ? "yyyy-MM-dd HH:mm" : "MM-dd HH:mm") : (year ? "MMM d yyyy, HH:mm" : "MMM d, HH:mm")
+        return f.string(from: date)
+    }
+
     public static func home(_ path: String) -> String {
         let h = NSHomeDirectory()
         return path.hasPrefix(h) ? "~" + path.dropFirst(h.count) : path

@@ -186,8 +186,11 @@ them.
    only for generic folders (`build`, `dist`, `out`) big enough to list, and
    decides which items are preselected.
 3. `FrameSequenceRecognizer` finds folders with many images, reads a few image
-   headers, and looks for a nearby video whose duration × frame rate matches
-   the frame count.
+   headers, and looks for a nearby video with the same number of frames (its
+   video track's duration × frame rate, within 3 frames or 0.5%). Going up
+   from the frames, it passes over other projects (folders with a git repo or
+   manifest) and folders holding other frame sequences, and prefers the newest
+   video on a tie.
 4. `DevCacheRecognizer`, `ModelRecognizer`, `AppDataRecognizer` and
    `SystemRecognizer` handle the rest.
 5. `refineShared` measures large items whose estimate is only a lower bound.
@@ -217,8 +220,13 @@ Every recognizer must follow the rules in
 
 `Executor` runs items one by one. Right before each, for every path the action
 touches, it checks `Guards.isDenied`, that the path exists and is not a
-symlink, that git tracks nothing in it (failing closed), and the 7-day rule
-(unless `force`). Then it acts: `removefile` for deletes,
+symlink, that git tracks nothing in it (failing closed), that no running
+program's command line names it (`ps`, also failing closed), and the 7-day
+rule. `force` lifts that rule for every item; `chosen`, the items the person
+ticked by hand, lifts it for the regenerable ones among them, so preselected
+items that changed after the scan stay put. For uv's commands it also checks
+that no uv is running, since uv would wait on its cache lock, and sets
+`UV_LOCK_TIMEOUT` in case one starts meanwhile. Then it acts: `removefile` for deletes,
 `FileManager.trashItem` for the Trash, or the tool's command through `Shell`.
 Before deleting a Python virtualenv it records `pyvenv.cfg` and a
 `pip freeze`. Free space is measured before and after, and everything goes
@@ -280,9 +288,11 @@ fixtures built in temporary folders:
 - `AccountingTests`: freeing a uv cache and a `.venv` together.
 - `RecognizerTests`: project artifacts and restore commands, active projects
   not preselected, projects on an external disk (not in its dot folders),
-  frame sequences versus camera bursts.
+  frames matching only their own video, npx packages, frame sequences versus
+  camera bursts.
 - `SafetyTests`: denied locations, covered items, executor refusing protected
-  and git-tracked paths, the 7-day rule, Node scripts finding `node` from an
+  and git-tracked paths, files a running program uses, the 7-day rule and
+  what lifts it, uv waiting for no one, Node scripts finding `node` from an
   app's bare PATH.
 - `LiveIndexTests`: a patched tree equals a fresh scan, saved trees keep
   growing, big folders wait their turn, privacy-prompting folders are never

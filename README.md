@@ -43,7 +43,8 @@ back.
   says so instead of promising space you won't get.
 - **Safe by default.** Rebuildable things are deleted with a restore command in
   the journal; your own files go to the Trash. iCloud, Photos, `.git`,
-  git-tracked files and anything changed in the last 7 days are never touched.
+  git-tracked files and anything a running program uses are never touched,
+  and anything changed in the last 7 days is only cleaned if you tick it.
 - **Live.** After the first scan the index follows the disk through FSEvents.
   Reopening the app catches up in about a second instead of rescanning.
 - **External disks too.** Each connected disk gets its own page: the projects
@@ -128,9 +129,12 @@ The [user guide](docs/user-guide.md) walks through every screen and command.
   check is skipped and reported.
 - Never touched: iCloud Drive, cloud-storage folders (Dropbox, OneDrive,
   Google Drive), Photos / Music / Mail / Messages libraries, Keychains, `.ssh`,
-  `.gnupg`, anything inside `.git`, git-tracked files, symlinks, and anything
-  changed in the last 7 days (the CLI can override only the 7-day rule, with
-  `--force`).
+  `.gnupg`, anything inside `.git`, git-tracked files, symlinks, and files a
+  running program is using.
+- Anything changed in the last 7 days is left alone too, unless it is a
+  rebuildable item (a build folder, a cache) you ticked yourself. Your own
+  files wait the 7 days even when ticked. The CLI's `--force` lifts this rule,
+  and only this one.
 - Tools with their own cleanup command (uv, npm, pnpm, bun, Yarn, Homebrew,
   `simctl`, Docker) are run instead of deleting their folders, because the
   tool knows what is still in use. `docker system prune` is never used.

@@ -8,6 +8,34 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **npx cache.** Packages npx installed to run them (`~/.npm/_npx`), one row
+  per package with all its versions. `npm cache clean` leaves them alone, and
+  each new release of a tool run with npx adds another folder. Packages a
+  running program uses (MCP servers often run this way) and ones installed in
+  the last 7 days are left out.
+
+### Changed
+
+- Rebuildable items you tick yourself are cleaned even if they changed in the
+  last 7 days. A build folder last written a few days ago was skipped on every
+  Clean Up, with a hint about `--force`, a CLI flag the app doesn't have.
+  Preselected items and your own files still wait the 7 days, and a skipped
+  item now says when it can go. In the CLI, items named with `--select` or
+  `--add`, and `smd hibernate`'s, count as ticked.
+- Nothing a running program uses is deleted: Clean Up checks the running
+  programs' command lines right before each item and skips it if one names
+  it, naming the program and its PID.
+- The uv cache is skipped at once, naming the process, while a uv runs: a
+  long-running `uv run` holds the cache lock, and `uv cache prune` waited 5
+  minutes for it on every Clean Up and then failed.
+- Render frames match a video only if it has the same number of frames, give
+  or take a few (it was within 3%), and isn't inside another project or next
+  to another frame folder. A frames folder on a test disk was matched to an
+  unrelated video in another repo and preselected. When two videos tie (a
+  voice-only and a mixed version), the newest is named.
+
 ## [0.4.0] - 2026-11-05
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and

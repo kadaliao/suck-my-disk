@@ -178,10 +178,13 @@ bring a project's dependencies back.
 Folders of rendered frames: at least 300 images (`png`, `jpg`, `exr`, `tif`,
 `dpx`, …) and 50 MB. Frames are grouped by the project they belong to.
 
-- If a video nearby has a frame count matching its duration × frame rate, the
+- If a video nearby has the same number of frames (give or take a few), the
   frames are **rebuildable**: the final video exists and the frames can be
   rendered again from the source project. They are preselected unless they
-  were rendered in the last 7 days.
+  were rendered in the last 7 days. A video doesn't count if it is inside
+  another project (a folder with its own git repo or manifest) or next to
+  another frame folder: episode 19's video belongs to episode 19's frames,
+  even when episode 20's own video is gone.
 - If no matching video is found, the folder is listed as an **image
   sequence**, handled as your files (to Trash), and not preselected. Camera
   bursts and photo folders end up here.
@@ -199,6 +202,7 @@ often hold paid text-to-speech audio and stills next to the frames.
 | | `uv cache clean` (everything) | no |
 | | `uv cache clean` + the `.venv`s of sleeping projects | when it frees much more than either alone |
 | npm | `npm cache clean --force` | yes |
+| npx | delete the packages npx installed in `~/.npm/_npx`, one row per package; skips any a running program uses (MCP servers often run this way) and any installed in the last 7 days | yes |
 | pnpm store | `pnpm store prune` (packages no project uses) | yes |
 | bun | `bun pm cache rm` | yes |
 | Yarn | `yarn cache clean` | yes |
@@ -386,8 +390,10 @@ smd reclaim /Volumes/Backup --yes # the preselection on an external disk
 
 Numbers refer to the last `smd things` report. `reclaim` reuses that report
 for an hour, so run `smd things` again if it has been longer or if the disk
-changed a lot. `--force` lifts only the 7-day rule; every other safety rule
-still applies.
+changed a lot. Items you name with `--select` or `--add` count as ticked by
+hand, so rebuildable ones go even if they changed in the last 7 days.
+`--force` lifts the 7-day rule for every item, your own files included; every
+other safety rule still applies.
 
 The output lists each item with what will happen (`delete`, `trash`, or the
 command), then, with `--yes`, the space each one actually freed and the free
@@ -482,7 +488,16 @@ These apply to the app and the CLI alike, and no recognizer can override them.
 - the path still exists and is not a symlink
 - git tracks no file at or below it (if git can't answer, it is treated as
   tracked)
-- it has not changed in the last 7 days (the CLI's `--force` lifts this one)
+- no running program uses it: it is neither where a running program lives nor
+  among its arguments (if the running programs can't be listed, nothing is
+  deleted). A skipped item names the program and its PID.
+- it has not changed in the last 7 days, unless it is a rebuildable item you
+  ticked yourself (the CLI's `--force` lifts this one for every item). A
+  skipped item says when it can go: “changed Oct 31, 18:07; can be cleaned
+  after Nov 7, 18:07”.
+- for uv's cache commands, no uv is running. A long-running `uv run` holds the
+  cache lock, and `uv cache prune` would wait 5 minutes for it and then fail;
+  the item is skipped at once and names that process instead.
 
 **How things are removed**
 
@@ -564,8 +579,22 @@ its data is shared, or it belongs to a category where nothing is preselected
 (models, image sequences, the whole uv cache, old simulators). You can still
 tick it yourself.
 
-**An item was skipped with "changed in the last 7 days".**
-That rule protects work in progress. Wait, or from the CLI use `--force`.
+**An item was skipped with "changed …; can be cleaned after …".**
+That rule protects work in progress. It holds back your own files and items
+you didn't tick yourself (preselected ones, in case they changed after the
+scan). Tick a rebuildable item yourself to clean it anyway, or wait until the
+date shown. From the CLI, `--force` lifts the rule.
+
+**The uv cache was skipped because a uv process is running.**
+A running `uv run` (a long-lived server, say) holds the uv cache lock, and
+uv can't clean its cache until that process exits. Stop it, or clean up
+another time.
+
+**The npm cache keeps coming back.**
+That's expected: npm refills `~/.npm/_cacache` whenever it downloads
+something, and `npx` adds a folder under `~/.npm/_npx` for every new version
+of a tool it runs. Both are listed under Dev caches. If cleaning the npm cache
+fails with `env: node: No such file or directory`, update to 0.3.1 or newer.
 
 **How do I get something back?**
 Rebuildable items: run the restore command shown in the list, in the journal

@@ -134,7 +134,10 @@ private struct Builder {
           "\(Fmt.bytes(gb(size))) is shared with other places and stays allocated")
     }
 
-    var recent: String { L("7 天内有改动", "changed in the last 7 days") }
+    var recent: String {
+        let d = Fmt.stamp(Date().addingTimeInterval(-2 * 86400 - 3 * 3600))
+        return L("\(d) 还有改动，所以没预选", "changed \(d), so not preselected")
+    }
 
     mutating func project(_ name: String, _ size: Double, days: Int, _ source: String, _ items: [ReclaimItem]) {
         let path = h + "/workspace/" + name
@@ -209,7 +212,8 @@ private struct Builder {
         things.append(Thing(id: "media:" + ep, kind: .media, title: L("渲染中间帧 · explainer-ep3", "Render frames · explainer-ep3"),
                             path: ep, bytes: gb(8.2), detail: L("1 组帧序列", "1 frame folders"), items: [
             frames(ep + "/out/frames", 2910, 8.2, video: ep + "/out/explainer-ep3.mp4", pre: false,
-                   warnings: [L("7 天内刚渲染过", "rendered in the last 7 days")]),
+                   warnings: [{ let d = Fmt.stamp(Date().addingTimeInterval(-86400 - 5 * 3600))
+                                return L("\(d) 刚渲染过，所以没预选", "rendered \(d), so not preselected") }()]),
         ]))
     }
 
