@@ -6,6 +6,10 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.4.1] - 2026-11-07
+
+需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。索引格式没变，升级后不用重新扫描。
+
 ### 新增
 
 - **npx 缓存。** npx 为了运行而装下的包（`~/.npm/_npx`），每个包一行，所有版本放在一起。`npm cache clean` 不管它们，而用 npx 运行的工具每出一个新版本就多一个文件夹。正在运行的程序在用的包（MCP 服务器常这样运行）和 7 天内装的不列出。
@@ -91,7 +95,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.4.0...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.2.0...v0.3.0
