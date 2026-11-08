@@ -692,6 +692,9 @@ preferences.
 4. Optionally remove SuckMyDisk from System Settings → Privacy & Security →
    Full Disk Access.
 
+If you installed with Homebrew, `brew uninstall --cask --zap suck-my-disk`
+and `brew uninstall smd` do steps 1–3 (the data goes to the Trash).
+
 ## FAQ and troubleshooting
 
 **Why do the numbers differ from Finder or System Settings?**

@@ -74,6 +74,15 @@ SuckMyDisk 告诉你那*是什么*、能不能重新生成、删了实际能腾�
 
 ## 安装
 
+**Homebrew。**
+
+```sh
+brew install --cask kadaliao/tap/suck-my-disk   # App
+brew install kadaliao/tap/smd                   # 命令行
+```
+
+App 会自己更新，所以 `brew upgrade` 默认跳过它，要用 brew 升级就加 `--greedy`；命令行用 `brew upgrade smd` 升级。
+
 **App。** 从 [Releases](https://github.com/kadaliao/suck-my-disk/releases/latest)
 下载 `SuckMyDisk-<version>.dmg`，打开后把 SuckMyDisk 拖进「应用程序」。
 （同一个 App 也有 `.zip` 版。）安装包用 Developer ID 签名，并经过 Apple 公证，

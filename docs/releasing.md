@@ -110,6 +110,21 @@ place to change it.
    > Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and
    > notarized.
 
+8. **Homebrew.** Point the tap at the release:
+
+   ```sh
+   scripts/update-homebrew-tap.sh v<version>
+   ```
+
+   It reads `SHA256SUMS` from the release, rewrites `Casks/suck-my-disk.rb`
+   (the app) and `Formula/smd.rb` (the CLI) in
+   [kadaliao/homebrew-tap](https://github.com/kadaliao/homebrew-tap), commits
+   and pushes; it needs push access to that repo. Set `TAP_DIR` to a local
+   clone and `PUSH=0` to check the commit before pushing it yourself. Skip
+   this for pre-releases. The cask is marked `auto_updates`: people who
+   installed the app with Homebrew get the release from the in-app updater
+   anyway, so the tap is what new installs and `brew upgrade smd` see.
+
 ## If something fails
 
 - **Notarization rejected.** `xcrun notarytool log <submission-id>

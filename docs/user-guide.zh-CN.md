@@ -581,6 +581,8 @@ App 和命令行都遵守这些规则，任何识别器都不能绕过。
 
 4. 也可以在 系统设置 → 隐私与安全性 → 完全磁盘访问权限 里把 SuckMyDisk 移除。
 
+如果是用 Homebrew 装的，`brew uninstall --cask --zap suck-my-disk` 和 `brew uninstall smd` 就完成了第 1–3 步（数据会移到废纸篓）。
+
 ## 常见问题
 
 **为什么数字和访达、系统设置里的不一样？**

@@ -6,6 +6,10 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+### 新增
+
+- **Homebrew。** `brew install --cask kadaliao/tap/suck-my-disk` 安装 App，`brew install kadaliao/tap/smd` 安装命令行，来自 [kadaliao/homebrew-tap](https://github.com/kadaliao/homebrew-tap)。
+
 ## [0.5.0] - 2026-11-08
 
 需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。索引格式没变，升级后不用重新扫描。

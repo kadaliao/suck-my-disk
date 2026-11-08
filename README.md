@@ -85,6 +85,16 @@ back.
 
 ## Install
 
+**Homebrew.**
+
+```sh
+brew install --cask kadaliao/tap/suck-my-disk   # the app
+brew install kadaliao/tap/smd                   # the command line
+```
+
+The app still updates itself, so `brew upgrade` skips it unless you add
+`--greedy`; `brew upgrade smd` updates the command line.
+
 **App.** Download `SuckMyDisk-<version>.dmg` from
 [Releases](https://github.com/kadaliao/suck-my-disk/releases/latest), open it,
 and drag SuckMyDisk into Applications. (The same app is also there as a

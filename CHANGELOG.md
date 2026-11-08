@@ -8,6 +8,12 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Homebrew.** `brew install --cask kadaliao/tap/suck-my-disk` installs the
+  app and `brew install kadaliao/tap/smd` the command line, from the
+  [kadaliao/homebrew-tap](https://github.com/kadaliao/homebrew-tap) tap.
+
 ## [0.5.0] - 2026-11-08
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and
