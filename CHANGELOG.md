@@ -8,6 +8,19 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-08
+
+Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and
+notarized. Copies of 0.5.0 and later get this release through the in-app
+update. The index format is unchanged, so upgrading needs no rescan.
+
+### Fixed
+
+- Opening an external disk's page while that disk was being scanned could
+  freeze the window for good (spinning cursor, 100% CPU) until SuckMyDisk was
+  force-quit. The list on that page no longer lays itself out lazily, and the
+  scan's file count now redraws only its own label instead of the whole page.
+
 ## [0.5.1] - 2026-11-08
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and
@@ -221,7 +234,8 @@ Developer ID and notarized.
   `smd reclaim` (dry run by default), `smd hibernate`, `smd wake`,
   `smd journal`.
 
-[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.4.0...v0.4.1
