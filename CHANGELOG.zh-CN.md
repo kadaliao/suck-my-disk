@@ -6,6 +6,10 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.5.1] - 2026-11-08
+
+需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。App 的功能和 0.5.0 完全一样；0.5.0 会通过 App 内更新拿到这个版本，这是第一个这样送达的版本。索引格式没变，升级后不用重新扫描。
+
 ### 新增
 
 - **Homebrew。** `brew install --cask kadaliao/tap/suck-my-disk` 安装 App，`brew install kadaliao/tap/smd` 安装命令行，来自 [kadaliao/homebrew-tap](https://github.com/kadaliao/homebrew-tap)。
@@ -119,7 +123,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.0...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.3.1...v0.4.0
