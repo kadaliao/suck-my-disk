@@ -14,8 +14,11 @@ final class ExternalDisk: Identifiable {
     var volume: ExternalVolume
     var tree: ScanTree?
     var report: Report?
-    /// Only `.idle`, `.scanning` and `.recognizing` are used.
+    /// Only `.idle`, `.scanning` and `.recognizing` are used. It changes a few times per
+    /// scan; the progress count is kept apart so its ticks redraw only the label showing it.
     var phase: Phase = .idle
+    /// Files read so far by the running scan.
+    var scannedFiles: UInt64 = 0
     /// Bumped whenever `tree` is replaced.
     var treeRevision = 0
     /// Stops the running scan when the disk is about to be ejected, so it isn't "in use".
@@ -105,11 +108,12 @@ extension AppModel {
     /// Scans an external disk and recognizes what is on it. `interactive`: the user asked, so full speed.
     func scan(_ d: ExternalDisk, interactive: Bool = false) async {
         guard demo == nil, !d.isBusy, externals.contains(where: { $0 === d }) else { return }
+        d.scannedFiles = 0
         d.phase = .scanning(files: 0, bytes: 0)
         let progress = ProgressRelay()
         let poll = Task { @MainActor in
             while !Task.isCancelled {
-                if case .scanning = d.phase, let p = progress.value { d.phase = .scanning(files: p.files, bytes: p.bytes) }
+                if let p = progress.value, p.files != d.scannedFiles { d.scannedFiles = p.files }
                 try? await Task.sleep(for: .milliseconds(150))
             }
         }

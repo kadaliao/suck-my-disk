@@ -42,7 +42,7 @@ struct ExternalDiskView: View {
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(L("磁盘 \(Fmt.bytes(disk.volume.total))", "Disk \(Fmt.bytes(disk.volume.total))"))
                     Text(L("可用 \(Fmt.bytes(disk.volume.free))", "Free \(Fmt.bytes(disk.volume.free))"))
-                    status
+                    ExternalDiskStatus(disk: disk)
                 }
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -61,36 +61,6 @@ struct ExternalDiskView: View {
         }
     }
 
-    @ViewBuilder
-    private var status: some View {
-        switch disk.phase {
-        case .scanning(let files, _):
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.mini)
-                Text(L("正在扫描 \(files.formatted()) 个文件", "Scanning \(files.formatted()) files"))
-            }
-        case .recognizing(let m):
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.mini)
-                Text(m).lineLimit(1)
-            }
-        default:
-            if let r = disk.report {
-                SwiftUI.TimelineView(.everyMinute) { ctx in Text(scannedAgo(r.createdAt, now: ctx.date)) }
-            } else {
-                Text(L("还没扫描", "Not scanned yet"))
-            }
-        }
-    }
-
-    private func scannedAgo(_ d: Date, now: Date) -> String {
-        let m = Int(now.timeIntervalSince(d) / 60)
-        if m < 1 { return L("刚刚扫描", "Scanned just now") }
-        if m < 60 { return L("\(m) 分钟前扫描", "Scanned \(m) min ago") }
-        if m < 48 * 60 { return L("\(m / 60) 小时前扫描", "Scanned \(m / 60) h ago") }
-        return L("\(m / 1440) 天前扫描", "Scanned \(m / 1440) days ago")
-    }
-
     private var segments: [Segment] {
         let project = disk.occupied(.project), media = disk.occupied(.media)
         let used = disk.volume.used
@@ -106,7 +76,10 @@ struct ExternalDiskView: View {
 
     private var list: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            // Not lazy: an open project can be taller than the window, and a LazyVStack
+            // with such a row could keep re-laying itself out forever (macOS 26), freezing
+            // the window. A disk has tens of these rows, so laying them all out is cheap.
+            VStack(alignment: .leading, spacing: 0) {
                 ForEach([ThingKind.project, .media], id: \.self) { kind in
                     let things = disk.things.filter { $0.kind == kind }.sorted { $0.reclaimable > $1.reclaimable }
                     if !things.isEmpty {
@@ -158,6 +131,41 @@ struct ExternalDiskView: View {
             }
             .padding(.top, 40)
         }
+    }
+}
+
+/// Scan progress, or when the disk was last scanned. Its own view, so progress ticks
+/// redraw only this label and not the list under it.
+struct ExternalDiskStatus: View {
+    var disk: ExternalDisk
+
+    var body: some View {
+        switch disk.phase {
+        case .scanning:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(L("正在扫描 \(disk.scannedFiles.formatted()) 个文件", "Scanning \(disk.scannedFiles.formatted()) files"))
+            }
+        case .recognizing(let m):
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(m).lineLimit(1)
+            }
+        default:
+            if let r = disk.report {
+                SwiftUI.TimelineView(.everyMinute) { ctx in Text(scannedAgo(r.createdAt, now: ctx.date)) }
+            } else {
+                Text(L("还没扫描", "Not scanned yet"))
+            }
+        }
+    }
+
+    private func scannedAgo(_ d: Date, now: Date) -> String {
+        let m = Int(now.timeIntervalSince(d) / 60)
+        if m < 1 { return L("刚刚扫描", "Scanned just now") }
+        if m < 60 { return L("\(m) 分钟前扫描", "Scanned \(m) min ago") }
+        if m < 48 * 60 { return L("\(m / 60) 小时前扫描", "Scanned \(m / 60) h ago") }
+        return L("\(m / 1440) 天前扫描", "Scanned \(m / 1440) days ago")
     }
 }
 
