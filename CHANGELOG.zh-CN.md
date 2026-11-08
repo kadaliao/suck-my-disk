@@ -6,6 +6,10 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.5.0] - 2026-11-08
+
+需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。索引格式没变，升级后不用重新扫描。
+
 ### 新增
 
 - **应用。** 新的分区列出「应用程序」里的每个应用，连同它放在资源库里的数据（Application Support、Caches、Containers、Group Containers、Preferences、窗口状态、Cookie、启动代理），按占用从大到小排，并写明你上次什么时候打开过它。每个应用可以**卸载**：应用和所有数据移到废纸篓，能放回；也可以保留应用，只删它的**缓存**：缓存、日志、窗口状态和 Electron 应用的缓存文件夹。默认都不勾，应用有任何东西在运行时两者都会跳过。亲手勾上的不用等 7 天，因为打开应用就会改动它的文件夹。归系统所有的应用（App Store、安装器装的）由访达来移，访达会要你的密码。应用给所有用户装了组件、是 Homebrew 装的、或者归 Setapp 管时，会有警告。
@@ -111,7 +115,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.4.1...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.3.0...v0.3.1
