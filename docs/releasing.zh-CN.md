@@ -72,6 +72,8 @@
      --title "SuckMyDisk <version>" --notes-file <notes.md>
    ```
 
+   发布就等于推送：一天之内，所有 0.5.0 及以后的副本都会下载并安装它（见[自动更新](architecture.zh-CN.md#自动更新updateupdater)）。它需要标签 `v<version>` 和 `.zip`、`SHA256SUMS` 两个附件，并且忽略草稿和 pre-release；想把某个构建分享出去、又不想推给所有人，就发成 pre-release。
+
    说明开头先放安装说明，再放之前沿用的系统要求那一行：
 
    > **Install / 安装:** download `SuckMyDisk-<version>.dmg`, open it, and drag SuckMyDisk into Applications. / 下载 `SuckMyDisk-<version>.dmg`，打开后把 SuckMyDisk 拖进「应用程序」。
@@ -82,4 +84,4 @@
 
 - **公证被拒。** `xcrun notarytool log <submission-id> --keychain-profile <profile-name>` 会告诉你原因。通常是某个二进制没开 hardened runtime 或者没有安全时间戳；`release.sh` 这两个参数都传了。
 - **`spctl` 不认这个 App。** 要么没钉上公证票据，要么钉完之后签名又变了。从头重跑脚本；它一开始就会删掉 `build/release`。
-- **发出去的版本有问题。** 不要复用这个版本号。把这个 GitHub release 标成 pre-release 或者删掉，修好问题，发下一个补丁版本。
+- **发出去的版本有问题。** 不要复用这个版本号。把这个 GitHub release 标成 pre-release 或者删掉，别的副本就不会再装它；修好问题，尽快发下一个补丁版本：已经更新的副本只会往前升级，修复会作为下一次更新送到它们那里。

@@ -227,13 +227,17 @@ struct CleanSheet: View {
 
     var body: some View {
         let plan = model.cleanPlan
+        let uninstall = plan.items.filter { $0.app != nil && $0.action.isTrashOnly }
+        let rest = plan.items.filter { !($0.app != nil && $0.action.isTrashOnly) }
         let groups: [(String, String, [ReclaimItem])] = [
+            (L("卸载应用", "Uninstall apps"), L("应用和它的数据移到废纸篓，可以放回", "each app and its data go to the Trash; you can put them back"),
+             uninstall),
             (L("直接删除", "Delete"), L("能重新生成，恢复方法记在日志里", "rebuildable; restore steps are logged"),
-             plan.items.filter { if case .delete = $0.action { return true }; if case .deleteAll = $0.action { return true }; if case .compound = $0.action { return true }; return false }),
+             rest.filter { if case .delete = $0.action { return true }; if case .deleteAll = $0.action { return true }; if case .compound = $0.action { return !$0.action.isTrashOnly }; return false }),
             (L("运行工具自带的清理命令", "Run the tool's own cleanup"), L("工具自己知道哪些还在用", "the tool knows what is still in use"),
-             plan.items.filter { if case .command = $0.action { return true }; return false }),
+             rest.filter { if case .command = $0.action { return true }; return false }),
             (L("移到废纸篓", "Move to Trash"), L("你的文件，可以从废纸篓找回", "your files; recoverable from the Trash"),
-             plan.items.filter { if case .trash = $0.action { return true }; return false }),
+             rest.filter { $0.action.isTrashOnly }),
         ]
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline) {
@@ -265,8 +269,8 @@ struct CleanSheet: View {
                 }
             }
             .frame(maxHeight: 360)
-            Text(L("iCloud、照片、git 跟踪的文件和正在运行的程序在用的东西不会被碰；7 天内改过的，只删你亲手勾上的可再生项。执行前每一项都会再检查一遍。",
-                   "iCloud, Photos, git-tracked files and anything a running program uses are never touched; of things changed in the last 7 days, only regenerable items you ticked yourself are deleted. Every item is re-checked first."))
+            Text(L("iCloud、照片、git 跟踪的文件、正在运行的程序和应用在用的东西不会被碰；7 天内改过的，只动你亲手勾上的可再生项和应用。执行前每一项都会再检查一遍。",
+                   "iCloud, Photos, git-tracked files, and anything a running program or app uses are never touched; of things changed in the last 7 days, only rebuildable items and apps you ticked yourself are cleaned. Every item is re-checked first."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {
@@ -387,6 +391,7 @@ struct MenuBarPanel: View {
                 Text(Fmt.bytes(model.plan.freed)).monospacedDigit()
             }
             .font(.callout)
+            UpdateMenuRow()
             Button(L("打开 SuckMyDisk", "Open SuckMyDisk")) {
                 openWindow(id: "main")
                 NSApp.activate()

@@ -32,5 +32,6 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: SuckMyDisk
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
         INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Kada Liao"
+        INFOPLIST_KEY_NSAppleEventsUsageDescription: "SuckMyDisk asks Finder to empty the Trash, and to move apps that belong to the system to the Trash when you uninstall them."
         ENABLE_APP_SANDBOX: NO
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: ""

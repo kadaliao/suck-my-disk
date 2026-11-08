@@ -8,6 +8,49 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Apps.** A new section lists every app in Applications with the data it
+  keeps in your Library (Application Support, Caches, Containers, Group
+  Containers, Preferences, saved state, cookies, launch agents), largest
+  first, with when you last opened it. Each app can be **uninstalled**, the
+  app and all its data moved to the Trash where you can put them back, or
+  kept while only its **caches** go: caches, logs, saved window state and
+  Electron apps' cache folders. Nothing is preselected, and both are skipped
+  while anything runs from the app. Picked by hand they don't wait out the
+  7-day rule, since opening an app changes its folders. Apps that belong to
+  the system (App Store, installers) are moved by Finder, which asks for your
+  password. Warnings say when an app installed components for every user,
+  came from Homebrew, or is managed by Setapp.
+- `smd apps` lists installed apps; `smd uninstall <app>` uninstalls one
+  (`--keep-app` clears only its caches), as a dry run until you add `--yes`.
+- **Updates itself.** About once a day SuckMyDisk asks GitHub for the latest
+  release. A newer one is downloaded in the background and installed only if
+  it matches the release's `SHA256SUMS` and is signed with the project's
+  Developer ID and notarized by Apple. It installs while SuckMyDisk is in the
+  background with its window closed and nothing is scanning or cleaning, and
+  reopens in a second or two, still in the menu bar; while you're using it,
+  the sidebar and the menu bar panel offer **Relaunch to Update**, and
+  quitting installs it. Full Disk Access carries over. **Check for Updates…**
+  is in the SuckMyDisk menu, and Settings (⌘,) turns automatic checks or
+  automatic installs off. This is the last version you download by hand.
+
+### Changed
+
+- SuckMyDisk now makes one kind of network request: the update check above,
+  to GitHub. It sends only the app's version; nothing about your disk leaves
+  the Mac.
+- Clean Up refuses anything System Integrity Protection guards, and never
+  removes `/Library`, `/Applications/Utilities`, the Applications folders
+  themselves, or the `~/Library` folders that hold many apps' data.
+- The Clean Up sheet lists uninstalls in their own group, and puts items that
+  only move things to the Trash under "Move to Trash".
+
+### Fixed
+
+- Every reclaim list opens its first groups. Only the first list you visited
+  did; the others opened collapsed.
+
 ## [0.4.1] - 2026-11-07
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and

@@ -93,6 +93,13 @@ place to change it.
      --title "SuckMyDisk <version>" --notes-file <notes.md>
    ```
 
+   Publishing is shipping: within a day, every copy of 0.5.0 or later
+   downloads the release and installs it (see
+   [Updates](architecture.md#updates-update-updater)). It needs the tag
+   `v<version>` and the `.zip` and `SHA256SUMS` assets, and it ignores drafts
+   and pre-releases, so a pre-release is the way to share a build without
+   sending it to everyone.
+
    Start the notes with the install line and the requirements line used so
    far:
 
@@ -112,5 +119,6 @@ place to change it.
   changed after stapling. Re-run the script from scratch; it starts by
   deleting `build/release`.
 - **A bad release went out.** Don't reuse the version. Mark the GitHub release
-  as a pre-release or delete it, fix the problem, and release the next patch
-  version.
+  as a pre-release or delete it, which stops further installs of it, fix the
+  problem, and release the next patch version soon: copies that already
+  updated only move forward, so the fix reaches them as the next update.

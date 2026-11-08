@@ -37,7 +37,7 @@ public final class Executor {
     }
 
     /// Paths an action would remove.
-    static func paths(_ a: ReclaimAction) -> [String] {
+    public static func paths(_ a: ReclaimAction) -> [String] {
         switch a {
         case .delete(let p), .trash(let p): return [p]
         case .deleteAll(let ps): return ps
@@ -71,6 +71,7 @@ public final class Executor {
         var st = stat()
         guard lstat(path, &st) == 0 else { return L("已经不存在", "no longer exists") }
         if (st.st_mode & S_IFMT) == S_IFLNK { return L("是符号链接", "is a symlink") }
+        if st.st_flags & UInt32(SF_RESTRICTED) != 0 { return L("受 macOS 系统完整性保护", "protected by System Integrity Protection") }
         if Guards.hasTrackedFiles(path) { return L("里面有 git 跟踪的文件", "contains git-tracked files") }
         // Fails closed, like the git check.
         guard let programs else { return L("没法确认有没有程序在用", "can't tell whether a program is using it") }
@@ -81,10 +82,51 @@ public final class Executor {
         return nil
     }
 
-    func runOne(_ item: ReclaimItem) -> Outcome {
+    static func exists(_ p: String) -> Bool {
+        var st = stat()
+        return lstat(p, &st) == 0
+    }
+
+    /// An app's caches and data folders come and go while it runs (window state, logs), so the
+    /// ones gone since the scan are dropped instead of failing the whole item. `keep` (the app
+    /// itself) stays, so a missing app is still reported.
+    static func existing(_ a: ReclaimAction, keep: String?) -> ReclaimAction {
+        switch a {
+        case .deleteAll(let ps): return .deleteAll(paths: ps.filter { $0 == keep || exists($0) })
+        case .compound(let acts):
+            return .compound(actions: acts.compactMap { x in
+                switch x {
+                case .trash(let p), .delete(let p): return p == keep || exists(p) ? x : nil
+                default: return existing(x, keep: keep)
+                }
+            })
+        default: return a
+        }
+    }
+
+    func runOne(_ original: ReclaimItem) -> Outcome {
+        var item = original
+        if item.app != nil { item.action = Self.existing(item.action, keep: item.path) }
         let paths = Self.paths(item.action), argvs = Self.commands(item.action)
+        // The list is older than the disk: an app removed meanwhile is reported, not half cleaned.
+        if let app = item.app, !Self.exists(app) || (paths.isEmpty && argvs.isEmpty) {
+            return finish(item, .skipped, 0, L("\(Fmt.home(app)) 已经不在了", "\(Fmt.home(app)) is no longer there"), before: 0, after: 0)
+        }
         let programs = paths.isEmpty && argvs.isEmpty ? [] : Guards.runningPrograms()
-        let recentOK = force || (item.tier == .regenerable && chosen.contains(item.id))
+        // Picked by hand, rebuildable items and an app's items don't wait out the 7-day rule.
+        let recentOK = force || (chosen.contains(item.id) && (item.tier == .regenerable || item.app != nil))
+        if let app = item.app {
+            let name = ((app as NSString).lastPathComponent as NSString).deletingPathExtension
+            guard let programs else {
+                return finish(item, .skipped, 0, L("没法确认 \(name) 有没有在运行", "can't tell whether \(name) is running"), before: 0, after: 0)
+            }
+            if let p = Guards.program(inApp: app, in: programs) {
+                return finish(item, .skipped, 0,
+                              L("\(name) 正在运行（\(p.summary)，PID \(p.pid)），先退出它",
+                                "\(name) is running (\(p.summary), PID \(p.pid)); quit it first"),
+                              before: 0, after: 0)
+            }
+        }
         for p in paths {
             if let why = check(p, programs: programs, recentOK: recentOK) {
                 return finish(item, .skipped, 0, "\(Fmt.home(p)): \(why)", before: 0, after: 0)
@@ -129,7 +171,18 @@ public final class Executor {
             do {
                 try FileManager.default.trashItem(at: URL(fileURLWithPath: p), resultingItemURL: nil)
                 return nil
-            } catch { return "\(error.localizedDescription)" }
+            } catch {
+                // An app installed by the App Store or an installer belongs to root: Finder moves it,
+                // asking for an administrator's password as when you drag it to the Trash.
+                guard p.hasSuffix(".app") else { return "\(error.localizedDescription)" }
+                log("  finder  " + Fmt.home(p))
+                let r = Shell.run(["osascript", "-e", "on run argv", "-e",
+                                   "tell application \"Finder\" to delete (POSIX file (item 1 of argv) as alias)",
+                                   "-e", "end run", p], timeout: 600)
+                if r.ok, !Self.exists(p) { return nil }
+                return L("\(error.localizedDescription)；交给访达也没成功，可以在访达里把它拖到废纸篓",
+                         "\(error.localizedDescription); Finder couldn't move it either. Drag it to the Trash in Finder")
+            }
         case .command(let argv, let cwd):
             log("  $ " + argv.joined(separator: " "))
             // If a uv starts after the check above, give up on its lock in 30 s rather than 5 minutes.
@@ -162,7 +215,9 @@ public final class Executor {
         case .delete, .deleteAll: actionName = "delete"
         case .trash: actionName = "trash"
         case .command(let argv, _): actionName = "command"; command = argv.joined(separator: " ")
-        case .compound: actionName = "compound"
+        case .compound(let acts):
+            actionName = item.app != nil && item.action.isTrashOnly ? "uninstall" : "compound"
+            command = Self.commands(.compound(actions: acts)).map { $0.joined(separator: " ") }.first
         case .none: actionName = "none"
         }
         try? store?.run("""

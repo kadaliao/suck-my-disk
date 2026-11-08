@@ -5,7 +5,7 @@ let package = Package(
     name: "DiskCore",
     platforms: [.macOS("26.0")],
     products: [
-        .library(name: "DiskCore", targets: ["DiskIndex", "Insights", "Recognizers", "Reclaim"]),
+        .library(name: "DiskCore", targets: ["DiskIndex", "Insights", "Recognizers", "Reclaim", "Update"]),
         .executable(name: "smd", targets: ["smd"]),
     ],
     targets: [
@@ -14,10 +14,11 @@ let package = Package(
         .target(name: "Insights", dependencies: ["DiskIndex"]),
         .target(name: "Recognizers", dependencies: ["DiskIndex", "Insights"]),
         .target(name: "Reclaim", dependencies: ["DiskIndex", "Recognizers"]),
+        .target(name: "Update", dependencies: ["DiskIndex"]),
         .executableTarget(name: "smd", dependencies: ["DiskIndex", "Insights", "Recognizers", "Reclaim"]),
         .testTarget(
             name: "DiskCoreTests",
-            dependencies: ["CFastScan", "DiskIndex", "Insights", "Recognizers", "Reclaim"]
+            dependencies: ["CFastScan", "DiskIndex", "Insights", "Recognizers", "Reclaim", "Update"]
         ),
     ]
 )

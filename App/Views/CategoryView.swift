@@ -1,6 +1,7 @@
 import AppKit
 import DiskIndex
 import Recognizers
+import Reclaim
 import SwiftUI
 
 struct CategoryView: View {
@@ -42,8 +43,9 @@ struct CategoryView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                BigNumber(bytes: kind == .appData ? model.occupied(kind) : model.reclaimable(kind), size: 40)
-                Text(kind == .appData ? L("被应用数据占用", "used by app data") : L("可以腾出", "reclaimable"))
+                BigNumber(bytes: kind == .appData || kind == .app ? model.occupied(kind) : model.reclaimable(kind), size: 40)
+                Text(kind == .appData ? L("被应用数据占用", "used by app data")
+                     : kind == .app ? L("被应用和它们的数据占用", "used by apps and their data") : L("可以腾出", "reclaimable"))
                     .foregroundStyle(.secondary)
             }
             Text(blurb).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -60,6 +62,8 @@ struct CategoryView: View {
         case .devCache: return L("各种工具的下载缓存。能用工具自己的清理命令就用它，它最清楚哪些还在用。",
                                  "Download caches of developer tools. When a tool has its own cleanup command we use it: it knows what is still in use.")
         case .model: return L("本地模型。删掉以后可以重新下载，默认都不勾。", "Local models. They can be downloaded again; nothing is preselected.")
+        case .app: return L("装在「应用程序」里的应用，连同它们放在资源库里的数据。可以整个卸载（应用和数据一起进废纸篓，能放回），也可以保留应用、只删它会自己重建的缓存。正在运行的应用不会动，默认都不勾。",
+                            "Apps in Applications, with the data they keep in your Library. Uninstall one (the app and its data go to the Trash, where you can put them back), or keep it and delete only the caches it rebuilds. Running apps are left alone; nothing is preselected.")
         case .appData: return L("这些数据属于各个应用，直接删会出问题。这里告诉你在应用里怎么清。", "This data belongs to apps and must be cleaned from inside them. Here's how.")
         case .system: return ""
         }
@@ -81,10 +85,11 @@ struct ThingRow: View {
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                     groupCheck
+                    if thing.kind == .app { AppIcon(path: thing.path) }
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 8) {
                             Text(thing.title).font(.body.weight(.medium)).lineLimit(1)
-                            if let d = thing.detail, thing.kind == .project {
+                            if let d = thing.detail, thing.kind == .project || thing.kind == .app {
                                 Text(d)
                                     .font(.caption2.weight(.medium))
                                     .padding(.horizontal, 6).padding(.vertical, 2)
@@ -133,7 +138,8 @@ struct ThingRow: View {
     private var subtitle: String {
         var parts: [String] = []
         if let d = thing.lastActive {
-            parts.append(L("活跃于 \(Fmt.ago(d))", "active \(Fmt.ago(d))") + (thing.activitySource.map { " · \($0)" } ?? ""))
+            parts.append(thing.kind == .app ? L("打开于 \(Fmt.ago(d))", "opened \(Fmt.ago(d))")
+                         : L("活跃于 \(Fmt.ago(d))", "active \(Fmt.ago(d))") + (thing.activitySource.map { " · \($0)" } ?? ""))
         }
         if let p = thing.path { parts.append(Fmt.home(p)) }
         return parts.joined(separator: "  ·  ")
@@ -183,9 +189,10 @@ struct ItemRow: View {
                 }
                 Text(item.reason + (item.restore.map { L(" · 恢复：", " · restore: ") + $0 } ?? ""))
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                if let p = item.path, p != itemParentPath {
+                if let p = item.path, p != itemParentPath, item.app == nil {
                     Text(Fmt.home(p)).font(.caption2).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
                 }
+                if item.app != nil, item.action.isTrashOnly { AppDataList(item: item) }
                 ForEach(item.warnings, id: \.self) { w in
                     Label(w, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(.orange).labelStyle(.titleAndIcon)
@@ -223,5 +230,53 @@ struct ItemRow: View {
             .padding(.horizontal, 5).padding(.vertical, 1)
             .background(color.opacity(0.13), in: Capsule())
             .foregroundStyle(color)
+    }
+}
+
+/// An app's icon as Finder shows it. In demo mode, and for an app that is gone, a tile with its initial.
+struct AppIcon: View {
+    @Environment(AppModel.self) private var model
+    var path: String?
+
+    var body: some View {
+        if model.demo == nil, let p = path, FileManager.default.fileExists(atPath: p) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: p)).resizable().frame(width: 26, height: 26)
+        } else {
+            let name = ((path ?? "?") as NSString).lastPathComponent
+            let hue = Double(name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xffff } % 360) / 360
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color(hue: hue, saturation: 0.55, brightness: 0.85).gradient)
+                .overlay(Text(name.prefix(1).uppercased()).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(.white))
+                .frame(width: 22, height: 22)
+                .padding(2)
+        }
+    }
+}
+
+/// Where an app's data is, under its Uninstall item: what goes to the Trash with it.
+struct AppDataList: View {
+    @Environment(AppModel.self) private var model
+    var item: ReclaimItem
+    @State private var all = false
+
+    var body: some View {
+        let places = Array(Executor.paths(item.action).dropFirst())
+        let shown = all ? places : Array(places.prefix(5))
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(shown, id: \.self) { p in
+                HStack(spacing: 6) {
+                    Text(Fmt.home(p)).lineLimit(1).truncationMode(.middle)
+                    if let n = model.tree?.find(p), let t = model.tree, t.size(n) >= 1_000_000 {
+                        Text(Fmt.bytes(t.size(n))).monospacedDigit()
+                    }
+                }
+            }
+            if places.count > shown.count {
+                Button(L("还有 \(places.count - shown.count) 处…", "\(places.count - shown.count) more…")) { all = true }
+                    .buttonStyle(.link)
+            }
+        }
+        .font(.caption2)
+        .foregroundStyle(.tertiary)
     }
 }

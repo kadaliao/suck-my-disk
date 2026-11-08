@@ -6,7 +6,7 @@
 
 <p align="center">
   A fast, honest disk-space tool for macOS 26.<br>
-  It recognizes projects, render frames, dev caches and local models, and tells you what can safely go.
+  It recognizes projects, render frames, dev caches, local models and apps, and tells you what can safely go.
 </p>
 
 <p align="center">
@@ -33,8 +33,8 @@ back.
 ## Highlights
 
 - **Recognizes things, not folders.** Projects and their build output, render
-  frames whose final video already exists, developer caches, local models, app
-  data and system space each get their own list.
+  frames whose final video already exists, developer caches, local models,
+  installed apps, app data and system space each get their own list.
 - **Knows when you last worked on something.** Activity comes from Claude Code,
   Codex and shell history, not just file dates. Projects untouched for 30 days
   count as asleep.
@@ -47,11 +47,17 @@ back.
   and anything changed in the last 7 days is only cleaned if you tick it.
 - **Live.** After the first scan the index follows the disk through FSEvents.
   Reopening the app catches up in about a second instead of rescanning.
+- **Uninstalls apps, or just clears their caches.** Every installed app is
+  listed with the data it keeps in your Library. Uninstall one and the app and
+  its data go to the Trash together; or keep the app and delete only the
+  caches it rebuilds. Running apps are left alone.
 - **External disks too.** Each connected disk gets its own page: the projects
   and render frames on it, a map, and its own Clean Up.
 - **App and command line.** `smd` shares the engine and the index with the app,
   and prints JSON for scripts and coding agents.
-- **Local only.** No network requests, no telemetry, no account.
+- **Local only.** Nothing about your disk leaves the Mac: no telemetry, no
+  account. The one network request is the daily update check with GitHub,
+  which you can turn off.
 - **Chinese and English**, following the system language.
 
 ## What it finds
@@ -62,12 +68,13 @@ back.
 | Media | Rendered frame folders (`00001.png`…) | Deleted only when the matching final video is found; otherwise moved to the Trash. |
 | Dev caches | uv, npm, pnpm, bun, Yarn, pip, Homebrew, Cargo, Xcode DerivedData, iOS Simulators, Docker build cache | The tool's own cleanup command when there is one (`uv cache prune`, `brew cleanup`…), otherwise deleted. |
 | Models | Ollama, Hugging Face, ModelScope, LM Studio | `ollama rm`, `hf cache rm`, or Trash. Nothing preselected. |
+| Apps | Every app in Applications, with its folders in `~/Library` (Application Support, Caches, Containers, Preferences…) | **Uninstall**: the app and its data go to the Trash. **Caches**: caches, logs and window state are deleted; the app and your data stay. Nothing preselected; skipped while the app runs. |
 | App data | WeChat, Chrome, Lark, Notion, iPhone backups… | Never deleted. You get instructions for cleaning inside the app. |
 
 | | |
 | --- | --- |
 | ![Projects: dependencies and build output of projects you stopped working on](docs/images/en/projects.png) | ![Clean Up: every item grouped by what will happen to it](docs/images/en/clean-up.png) |
-| ![Whole Disk: a treemap colored by kind](docs/images/en/whole-disk.png) | ![Timeline: what grows, day by day](docs/images/en/timeline.png) |
+| ![Apps: each app with its data, to uninstall or clear caches](docs/images/en/apps.png) | ![Whole Disk: a treemap colored by kind](docs/images/en/whole-disk.png) |
 
 <sub>Screenshots use demo mode (`--demo`), with made-up projects and sizes.</sub>
 
@@ -82,7 +89,8 @@ back.
 [Releases](https://github.com/kadaliao/suck-my-disk/releases/latest), open it,
 and drag SuckMyDisk into Applications. (The same app is also there as a
 `.zip`.) Builds are signed with a Developer ID and notarized by Apple, so they
-open without a warning.
+open without a warning. From 0.5.0 on, the app keeps itself up to date from the
+same page (see [Updating SuckMyDisk](docs/user-guide.md#updating-suckmydisk)).
 
 **Command line.** Download `smd-<version>-macos.zip` from the same page and put
 `smd` somewhere on your `PATH`:
@@ -109,8 +117,8 @@ smd help
    itself.
 4. **Click Clean Up**, review the list (grouped into *delete*, *run the tool's
    cleanup* and *move to Trash*), and confirm.
-5. **Decide on the rest.** Open Projects, Dev caches or Models in the sidebar,
-   tick what you don't need, and use the Clean Up bar at the bottom.
+5. **Decide on the rest.** Open Projects, Dev caches, Models or Apps in the
+   sidebar, tick what you don't need, and use the Clean Up bar at the bottom.
 
 From the terminal:
 
@@ -119,6 +127,8 @@ smd things            # what uses space and what can go (read-only)
 smd reclaim           # dry run of the preselected plan
 smd reclaim --yes     # do it
 smd things /Volumes/Backup   # an external disk
+smd apps              # installed apps and the data they keep
+smd uninstall Zoom    # dry run; --keep-app clears only its caches, --yes does it
 ```
 
 The [user guide](docs/user-guide.md) walks through every screen and command.
@@ -132,9 +142,12 @@ The [user guide](docs/user-guide.md) walks through every screen and command.
   `.gnupg`, anything inside `.git`, git-tracked files, symlinks, and files a
   running program is using.
 - Anything changed in the last 7 days is left alone too, unless it is a
-  rebuildable item (a build folder, a cache) you ticked yourself. Your own
-  files wait the 7 days even when ticked. The CLI's `--force` lifts this rule,
-  and only this one.
+  rebuildable item (a build folder, a cache) or an app you ticked yourself.
+  Your own files wait the 7 days even when ticked. The CLI's `--force` lifts
+  this rule, and only this one.
+- An app's items are skipped while anything runs from that app. Uninstalling
+  moves everything to the Trash, so it can be put back; components an app
+  installed for every user (`/Library`, privileged helpers) are not touched.
 - Tools with their own cleanup command (uv, npm, pnpm, bun, Yarn, Homebrew,
   `simctl`, Docker) are run instead of deleting their folders, because the
   tool knows what is still in use. `docker system prune` is never used.

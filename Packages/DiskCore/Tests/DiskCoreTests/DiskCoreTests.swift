@@ -475,3 +475,134 @@ final class Fixture {
         #expect(r.stdout.contains("interpreter-ran"))
     }
 }
+
+@Suite struct AppTests {
+    /// An app bundle with an Info.plist and a binary big enough to show in the index.
+    func app(_ f: Fixture, _ rel: String, id: String, name: String? = nil) throws {
+        var plist = ["CFBundleIdentifier": id]
+        if let name { plist["CFBundleName"] = name }
+        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try f.file(rel + "/Contents/Info.plist", text: String(decoding: data, as: UTF8.self))
+        try f.file(rel + "/Contents/MacOS/bin", mb: 2)
+    }
+
+    func paths(_ a: ReclaimAction) -> Set<String> { Set(Executor.paths(a)) }
+
+    @Test func appsAndTheirData() throws {
+        let f = try Fixture()
+        try app(f, "Applications/Foo.app", id: "com.example.foo")
+        try app(f, "Applications/Foo Pro.app", id: "com.example.foo.pro")      // extends Foo's id: gets its own data
+        try app(f, "Applications/Vendor/Baz.app", id: "org.other.baz")          // a vendor folder
+        try app(f, "Applications/Utilities/Qux.app", id: "com.example.qux")     // left out
+        try app(f, "Applications/SuckMyDisk.app", id: "com.kadaliao.SuckMyDisk")
+        #expect(symlink(f.path("Applications/Foo.app"), f.path("Applications/Link.app")) == 0)
+        let lib = "Library/"
+        try f.file(lib + "Caches/com.example.foo/blob", mb: 2)
+        try f.file(lib + "Caches/com.example.foo.ShipIt/update", mb: 1)
+        try f.file(lib + "Caches/com.example.foo.pro/blob", mb: 1)
+        try f.file(lib + "Caches/com.example/shared", mb: 1)                     // the vendor's, not Foo's
+        try f.file(lib + "Logs/Foo/today.log", text: "log")
+        try f.file(lib + "Saved Application State/com.example.foo.savedState/windows.plist", text: "w")
+        try f.file(lib + "Application Support/Foo/Cache/data_0", mb: 1)
+        try f.file(lib + "Application Support/Foo/notes.db", mb: 1)
+        try f.file(lib + "Application Support/Code/settings.json", text: "{}")   // too generic for anyone
+        try f.file(lib + "Containers/com.example.foo.Extension/Data/Library/Caches/x", mb: 1)
+        try f.file(lib + "Group Containers/ABCDE12345.com.example.foo/shared.db", text: "db")
+        try f.file(lib + "Preferences/com.example.foo.plist", text: "p")
+        try f.file(lib + "Preferences/com.example.plist", text: "p")
+        try f.file("Caskroom/foo/.metadata/INSTALL_RECEIPT.json", text: #"{"uninstall_artifacts":[{"app":["Foo.app"]}]}"#)
+        try f.file("System/com.example.foo.helper.plist", text: "")
+        try f.file("System/org.other.daemon.plist", text: "")                    // Baz's developer has no other app here
+        try f.file("System/com.example.updater.plist", text: "")                 // shared by two apps' developer: nobody's
+
+        let ctx = RecognizeContext(tree: f.scan(), activity: ActivityIndex())
+        let things = AppRecognizer.recognize(ctx, appFolders: [f.path("Applications")], library: f.path("Library"),
+                                             systemFolders: [f.path("System")], caskrooms: [f.path("Caskroom")])
+        #expect(Set(things.map(\.title)) == ["Foo", "Foo Pro", "Baz"])
+        #expect(things.allSatisfy { $0.kind == .app && $0.items.allSatisfy { !$0.preselected } })
+
+        let foo = try #require(things.first { $0.title == "Foo" })
+        let uninstall = try #require(foo.items.first)
+        #expect(uninstall.tier == .yours && uninstall.action.isTrashOnly && uninstall.app == f.path("Applications/Foo.app"))
+        let l = f.path(lib)
+        #expect(paths(uninstall.action) == [f.path("Applications/Foo.app"), l + "Caches/com.example.foo", l + "Caches/com.example.foo.ShipIt",
+                                             l + "Logs/Foo", l + "Saved Application State/com.example.foo.savedState",
+                                             l + "Application Support/Foo", l + "Containers/com.example.foo.Extension",
+                                             l + "Group Containers/ABCDE12345.com.example.foo", l + "Preferences/com.example.foo.plist"])
+        if case .compound(let acts) = uninstall.action, case .trash(let first) = acts.first {
+            #expect(first == f.path("Applications/Foo.app"))   // the app goes first: if it can't move, nothing else does
+        } else { Issue.record("uninstall is a list of moves to the Trash") }
+        let caches = try #require(foo.items.last)
+        #expect(caches.tier == .regenerable && uninstall.covers == [caches.id])
+        #expect(paths(caches.action) == [l + "Caches/com.example.foo", l + "Caches/com.example.foo.ShipIt", l + "Logs/Foo",
+                                          l + "Saved Application State/com.example.foo.savedState", l + "Application Support/Foo/Cache",
+                                          l + "Containers/com.example.foo.Extension/Data/Library/Caches"])
+        #expect(uninstall.warnings.contains { $0.contains("brew uninstall --cask foo") } && uninstall.restore == "brew install --cask foo")
+        #expect(uninstall.warnings.contains { $0.contains("com.example.foo.helper.plist") && !$0.contains("updater") })
+        #expect(foo.bytes >= 8_000_000 && foo.reclaimable == uninstall.estimate)
+
+        let pro = try #require(things.first { $0.title == "Foo Pro" })
+        #expect(paths(pro.items[0].action) == [f.path("Applications/Foo Pro.app"), l + "Caches/com.example.foo.pro"])
+        let baz = try #require(things.first { $0.title == "Baz" })
+        #expect(baz.items.count == 1)   // no caches to offer
+        #expect(baz.items[0].warnings.contains { $0.contains("org.other.daemon.plist") })
+    }
+
+    /// Nothing of a running app is touched; quit, its caches go, the app stays.
+    @Test func runningAppsAreLeftAlone() throws {
+        let f = try Fixture()
+        let bundle = f.path("Apps/Runner.app")
+        try app(f, "Apps/Runner.app", id: "com.example.runner")
+        try f.file("Library/Caches/com.example.runner/blob", mb: 1)
+        let caches = ReclaimItem(id: "c", label: "caches", path: nil, bytes: 1, tier: .regenerable,
+                                 action: .deleteAll(paths: [f.path("Library/Caches/com.example.runner"), f.path("Library/Logs/gone")]),
+                                 reason: "", preselected: false, app: bundle)
+        let runner = try f.runningProgram(using: "Apps/Runner.app/Contents/Resources/helper")
+        let o = Executor(store: nil, chosen: ["c"], log: { _ in }).run([caches])[0]
+        runner.terminate()
+        runner.waitUntilExit()
+        #expect(o.status == .skipped && o.message.contains("Runner") && o.message.contains("PID \(runner.processIdentifier)"))
+        #expect(FileManager.default.fileExists(atPath: f.path("Library/Caches/com.example.runner/blob")))
+        // A copy macOS runs from elsewhere (App Translocation) counts too.
+        let moved = [Guards.Program(pid: 9, command: "/private/var/folders/x/AppTranslocation/ABC/d/Runner.app/Contents/MacOS/Runner")]
+        #expect(Guards.program(inApp: bundle, in: moved)?.pid == 9)
+
+        // Changed just now and picked by hand: goes, and the folder that vanished meanwhile doesn't stop it.
+        let done = Executor(store: nil, chosen: ["c"], log: { _ in }).run([caches])[0]
+        #expect(done.status == .done, "\(done.message)")
+        #expect(!FileManager.default.fileExists(atPath: f.path("Library/Caches/com.example.runner")))
+        #expect(FileManager.default.fileExists(atPath: bundle + "/Contents/MacOS/bin"))
+    }
+
+    /// An app's items picked by hand skip the 7-day rule; preselected or not picked, they wait.
+    @Test func handPickedAppItemsSkipTheWait() throws {
+        let f = try Fixture()
+        let bundle = f.path("Apps/Fresh.app")
+        try app(f, "Apps/Fresh.app", id: "com.example.fresh")
+        try f.file("Library/Application Support/Fresh/state.db", mb: 1)
+        // A delete stands in for the Trash here, so the test leaves nothing in your Trash.
+        let item = ReclaimItem(id: "u", label: "data", path: bundle, bytes: 1, tier: .yours,
+                               action: .deleteAll(paths: [f.path("Library/Application Support/Fresh")]),
+                               reason: "", preselected: false, app: bundle)
+        #expect(Executor(store: nil, log: { _ in }).run([item])[0].status == .skipped)
+        #expect(Executor(store: nil, chosen: ["u"], log: { _ in }).run([item])[0].status == .done)
+        // The app itself gone: reported, not quietly half-done.
+        try FileManager.default.removeItem(atPath: bundle)
+        try f.file("Library/Application Support/Fresh/state.db", mb: 1)
+        let gone = Executor(store: nil, chosen: ["u"], log: { _ in }).run([item])[0]
+        #expect(gone.status == .skipped)
+        #expect(FileManager.default.fileExists(atPath: f.path("Library/Application Support/Fresh/state.db")))
+    }
+
+    @Test func sharedFoldersAreProtected() {
+        let h = NSHomeDirectory()
+        for p in ["/Applications", h + "/Applications", h + "/Library/Caches", h + "/Library/Containers",
+                  h + "/Library/Application Support/", "/Library/LaunchDaemons/com.x.plist", "/Applications/Utilities/Terminal.app"] {
+            #expect(Guards.isDenied(p), "\(p)")
+        }
+        #expect(!Guards.isDenied(h + "/Library/Caches/com.example.foo"))
+        #expect(!Guards.isDenied("/Applications/Foo.app"))
+        #expect(ReclaimAction.compound(actions: [.trash(path: "/a"), .trash(path: "/b")]).isTrashOnly)
+        #expect(!ReclaimAction.compound(actions: [.trash(path: "/a"), .delete(path: "/b")]).isTrashOnly)
+    }
+}

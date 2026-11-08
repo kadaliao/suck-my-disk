@@ -18,6 +18,8 @@ anything that could make it remove data it shouldn't.
   command.
 - SuckMyDisk reading privacy-protected folders without Full Disk Access, or
   sending data off the Mac.
+- A way to make the updater install anything other than a newer, genuine,
+  notarized SuckMyDisk release.
 - Problems with the signed and notarized release builds.
 
 Ordinary bugs (wrong numbers, a missing recognizer, a crash) can go in a
@@ -59,6 +61,7 @@ SuckMyDisk 会删除文件，所以在这个项目里，凡是可能让它删掉
 - SuckMyDisk 删除了不可再生的东西，或者把受保护位置里的东西删掉或移进了废纸篓（iCloud 云盘、云存储文件夹、照片 / 邮件 / 信息的资料库、`.git`、git 跟踪的文件、`.ssh`、钥匙串）。
 - 能让识别器或执行器越过它列出的范围去动别的东西，比如借助特制的文件名或文件夹名、符号链接、清理命令。
 - 没有「完全磁盘访问」时读取了受隐私保护的文件夹，或者把数据发到了本机以外。
+- 能让自动更新装上任何不是「更新的、正版的、经过公证的 SuckMyDisk 版本」的东西。
 - 已签名、已公证的发布版本本身有问题。
 
 一般的 bug（数字不对、少了某个识别器、崩溃）直接提公开 issue 就行。

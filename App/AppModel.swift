@@ -7,7 +7,7 @@ import Reclaim
 import SwiftUI
 
 enum Section: String, CaseIterable, Identifiable, Hashable {
-    case overview, project, media, devCache, model, appData, disk, timeline
+    case overview, project, media, devCache, model, apps, appData, disk, timeline
     var id: String { rawValue }
 
     var kind: ThingKind? {
@@ -16,6 +16,7 @@ enum Section: String, CaseIterable, Identifiable, Hashable {
         case .media: return .media
         case .devCache: return .devCache
         case .model: return .model
+        case .apps: return .app
         case .appData: return .appData
         default: return nil
         }
@@ -37,6 +38,7 @@ enum Section: String, CaseIterable, Identifiable, Hashable {
         case .media: return "film.stack"
         case .devCache: return "shippingbox"
         case .model: return "cpu"
+        case .apps: return "macwindow"
         case .appData: return "square.stack.3d.up"
         case .disk: return "square.grid.3x3.square"
         case .timeline: return "chart.xyaxis.line"
@@ -58,6 +60,7 @@ extension ThingKind {
         case .media: return .pink
         case .devCache: return .orange
         case .model: return .purple
+        case .app: return .indigo
         case .appData: return .teal
         case .system: return .gray
         }
@@ -255,9 +258,10 @@ final class AppModel {
     }
 
     /// Reclaimable but not selected: things waiting for the user's decision.
+    /// Apps are left out: uninstalling every app is not a decision anyone is waiting to make.
     var undecided: UInt64 {
-        let all = things.reduce(UInt64(0)) { $0 + $1.reclaimable }
-        let chosen = plan.freed
+        let all = things.filter { $0.kind != .app }.reduce(UInt64(0)) { $0 + $1.reclaimable }
+        let chosen = Planner.plan(things: things.filter { $0.kind != .app }, selected: selection).freed
         return all > chosen ? all - chosen : 0
     }
 
@@ -346,8 +350,10 @@ final class AppModel {
                 let hadItems = !t.items.isEmpty
                 t.items = t.items.compactMap { item in
                     guard let p = item.path else { return item }
-                    guard let n = tree.find(p) else { return nil }
-                    guard let old = baseline[item.id], old > 0 else { return item }
+                    // Gone from the index: gone. An app outside the index (demo mode) was never in it.
+                    guard let n = tree.find(p) else { return item.app != nil && baseline[item.id] == nil ? item : nil }
+                    // An app's item counts its data too, not just the bundle at its path.
+                    guard item.app == nil, let old = baseline[item.id], old > 0 else { return item }
                     let now = tree.size(n)
                     guard now != old else { return item }
                     var i = item

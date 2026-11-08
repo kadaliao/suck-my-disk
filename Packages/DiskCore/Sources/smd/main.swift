@@ -14,6 +14,9 @@ import Reclaim
 //                                        disk: an external disk's mount point, /Volumes/<name>
 //   smd hibernate <project> [--yes]      delete a project's rebuildable artifacts
 //   smd wake <project>                   show how to restore a hibernated project
+//   smd apps                             installed apps with the data they keep
+//   smd uninstall <app> [--keep-app] [--yes]
+//                                        an app and its data to the Trash, or only its caches
 //   smd journal                          what was done
 //   smd bench [path]                     scanner speed by thread count
 
@@ -256,6 +259,8 @@ func runPlan(_ items: [ReclaimItem], execute: Bool, disk: ExternalVolume? = nil,
         case .delete, .deleteAll: how = L("删除", "delete")
         case .trash: how = L("废纸篓", "trash")
         case .command(let argv, _): how = "$ " + argv.joined(separator: " ")
+        case .compound where i.action.isTrashOnly:
+            how = L("移到废纸篓（\(Executor.paths(i.action).count) 处）", "trash (\(Executor.paths(i.action).count) places)")
         case .compound: how = L("组合", "combined")
         case .none: how = "-"
         }
@@ -392,6 +397,61 @@ case "wake":
         if seen.insert(dir + restore).inserted { print("cd \(Fmt.home(dir)) && \(restore)") }
     }
 
+case "apps":
+    guard let report = await currentReport() else { exit(1) }
+    let apps = report.things.filter { $0.kind == .app }.sorted { $0.bytes > $1.bytes }
+    if args.has("json") {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        enc.dateEncodingStrategy = .iso8601
+        print(String(decoding: try! enc.encode(apps), as: UTF8.self))
+        break
+    }
+    let total = apps.reduce(UInt64(0)) { $0 + $1.bytes }
+    print(L("\(apps.count) 个应用，连同数据共 \(Fmt.bytes(total))", "\(apps.count) apps, \(Fmt.bytes(total)) with their data"))
+    for t in apps {
+        let caches = t.items.first { $0.tier == .regenerable }.map { L("  缓存 \(Fmt.bytes($0.estimate))", "  caches \(Fmt.bytes($0.estimate))") } ?? ""
+        let opened = t.lastActive.map { L("  打开于 \(Fmt.ago($0))", "  opened \(Fmt.ago($0))") } ?? ""
+        let size = Fmt.bytes(t.bytes)
+        print("  " + String(repeating: " ", count: max(0, 9 - size.count)) + size + "  " + t.title + caches + opened + "  " + Fmt.home(t.path ?? ""))
+    }
+    print(L("卸载：smd uninstall <应用>（先预演，确认后加 --yes）· 只清缓存：加 --keep-app",
+            "Uninstall: smd uninstall <app> (dry run; add --yes to run) · caches only: add --keep-app"))
+
+case "uninstall":
+    guard let name = args.positional.first else { err("smd uninstall <app> [--keep-app] [--yes]"); exit(2) }
+    guard let report = await currentReport() else { exit(1) }
+    let apps = report.things.filter { $0.kind == .app }
+    let path = ((name as NSString).expandingTildeInPath as NSString).standardizingPath
+    let key = name.lowercased().replacingOccurrences(of: ".app", with: "")
+    let hits = apps.filter { t in
+        t.path == path || t.title.lowercased() == key
+            || ((t.path ?? "") as NSString).lastPathComponent.lowercased().replacingOccurrences(of: ".app", with: "") == key
+    }
+    guard hits.count == 1, let app = hits.first else {
+        if hits.isEmpty {
+            err(L("没找到这个应用：\(name)。smd apps 列出所有应用", "No installed app called \(name). smd apps lists them all"))
+        } else {
+            err(L("有几个同名的，用路径指定：", "Several match; give the path:"))
+            for t in hits { err("  " + (t.path ?? t.title)) }
+        }
+        exit(1)
+    }
+    let keep = args.has("keep-app")
+    let items = app.items.filter { keep ? $0.tier == .regenerable : $0.tier == .yours }
+    guard !items.isEmpty else {
+        print(L("\(app.title) 没有可以清的缓存。", "\(app.title) has no caches to clear."))
+        exit(0)
+    }
+    print(keep ? L("清理 \(app.title) 的缓存：应用和你的数据都留着。", "Clearing \(app.title)'s caches; the app and your data stay.")
+               : L("卸载 \(app.title)：应用和它在资源库里的数据移到废纸篓，可以放回；清倒废纸篓后才腾出空间。",
+                   "Uninstalling \(app.title): the app and its data in your Library go to the Trash, where you can put them back. The space comes back when you empty the Trash."))
+    for w in items.flatMap(\.warnings) { print("  ⚠ " + w) }
+    if !keep, case .compound(let acts)? = items.first?.action {
+        for case .trash(let p) in acts.dropFirst() { print("    " + Fmt.home(p)) }
+    }
+    runPlan(items, execute: args.has("yes"), chosen: Set(items.map(\.id)))   // named by hand
+
 case "journal":
     let store = try Store()
     let rows = try store.query("SELECT ts, status, action, item_id, estimated, free_before, free_after, restore FROM journal ORDER BY ts DESC LIMIT 50")
@@ -422,6 +482,8 @@ default:
       smd things /Volumes/<disk>                        \(L("外接磁盘上的项目和渲染帧", "projects and render frames on an external disk"))
       smd reclaim /Volumes/<disk> [--yes]               \(L("清理外接磁盘上的预选项", "reclaim the preselection on an external disk"))
       smd hibernate <project> [--yes]                   \(L("让一个项目休眠", "hibernate one project"))
+      smd apps                                          \(L("已安装的应用和它们的数据", "installed apps and their data"))
+      smd uninstall <app> [--keep-app] [--yes]          \(L("卸载应用（或只清它的缓存）", "uninstall an app (or clear only its caches)"))
       smd wake <project>                                \(L("显示恢复命令", "show restore commands"))
       smd scan [paths…]                                 \(L("全盘扫描并保存索引", "full scan, saves the index"))
       smd top [path] [-n 25]                            \(L("某个目录下最大的东西", "biggest items under a path"))

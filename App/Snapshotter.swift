@@ -46,21 +46,21 @@ enum Snapshotter {
             for s in Section.allCases {
                 model.section = s
                 try? await Task.sleep(for: .milliseconds(1500))
-                await capture(to: dir.appendingPathComponent("\(Section.allCases.firstIndex(of: s)!)-\(s.rawValue).png"))
+                await capture(to: dir.appendingPathComponent("\(s.rawValue).png"))
             }
             if let d = model.externals.first {
                 model.page = .disk(d.id)
                 try? await Task.sleep(for: .milliseconds(1500))
-                await capture(to: dir.appendingPathComponent("8-external.png"))
+                await capture(to: dir.appendingPathComponent("external.png"))
                 model.showDiskMap = true
                 try? await Task.sleep(for: .milliseconds(1500))
-                await capture(to: dir.appendingPathComponent("8-external-map.png"))
+                await capture(to: dir.appendingPathComponent("external-map.png"))
                 model.showDiskMap = false
             }
             model.section = .overview
             model.confirmCleanUp()
             try? await Task.sleep(for: .milliseconds(900))
-            await capture(to: dir.appendingPathComponent("9-clean-sheet.png"), sheet: true)
+            await capture(to: dir.appendingPathComponent("clean-sheet.png"), sheet: true)
             model.confirming = false
             exit(0)
         }

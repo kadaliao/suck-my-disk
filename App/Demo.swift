@@ -21,6 +21,7 @@ struct DemoData {
         b.media()
         b.devCaches()
         b.models()
+        b.apps()
         b.appData()
 
         var volume = VolumeInfo.of()
@@ -108,6 +109,8 @@ private struct Builder {
     let now: Date
     let h = NSHomeDirectory()
     var things: [Thing] = []
+    /// The apps' folders in ~/Library and their sizes, for the index.
+    var appFolders: [String: UInt64] = [:]
 
     func ago(_ days: Double) -> Date { now.addingTimeInterval(-days * 86400) }
 
@@ -352,6 +355,90 @@ private struct Builder {
         ]))
     }
 
+    // MARK: apps
+
+    /// A made-up installed app: `data` are folders under ~/Library (GB), the ones in `caches` it rebuilds itself.
+    mutating func app(_ name: String, _ file: String, size: Double, days: Double?, data: [(String, Double)],
+                      caches: [(String, Double)], appStore: Bool = false, warnings: [String] = []) {
+        let path = "/Applications/" + file
+        let lib = h + "/Library/"
+        let dataBytes = data.reduce(0) { $0 + gb($1.1) }
+        for (rel, g) in data { appFolders[lib + rel, default: 0] += gb(g) }
+        // A cache inside a data folder is part of it, not extra.
+        for (rel, g) in caches where !data.contains(where: { $0.0 == rel }) {
+            if let outer = data.first(where: { rel.hasPrefix($0.0 + "/") }) {
+                appFolders[lib + outer.0, default: 0] -= min(appFolders[lib + outer.0] ?? 0, gb(g))
+            }
+            appFolders[lib + rel, default: 0] += gb(g)
+        }
+        var uninstall = ReclaimItem(
+            id: "apps:uninstall:" + path, label: L("卸载 \(name)", "Uninstall \(name)"), path: path, bytes: gb(size) + dataBytes,
+            tier: .yours, action: .compound(actions: [.trash(path: path)] + data.map { .trash(path: lib + $0.0) }),
+            restore: appStore ? L("从 App Store 重新安装；数据可以从废纸篓放回", "reinstall from the App Store; put the data back from the Trash")
+                              : L("从废纸篓放回", "put back from the Trash"),
+            reason: L("应用 \(Fmt.bytes(gb(size)))，连同资源库里 \(data.count) 处数据 \(Fmt.bytes(dataBytes))，一起移到废纸篓",
+                      "the app (\(Fmt.bytes(gb(size)))) and its data in \(data.count) places in your Library (\(Fmt.bytes(dataBytes))) go to the Trash"),
+            preselected: false, warnings: warnings, app: path)
+        var items = [uninstall]
+        if !caches.isEmpty {
+            let c = ReclaimItem(
+                id: "apps:caches:" + path, label: L("\(name) 的缓存", "\(name) caches"), path: nil,
+                bytes: caches.reduce(0) { $0 + gb($1.1) }, tier: .regenerable, action: .deleteAll(paths: caches.map { lib + $0.0 }),
+                restore: L("应用下次打开时会重建", "rebuilt when the app next runs"),
+                reason: L("缓存、日志和窗口状态，删掉后应用会自己重建；应用和你的数据都留着",
+                          "caches, logs and saved window state, which the app rebuilds; the app and your data stay"),
+                preselected: false, app: path)
+            uninstall.covers = [c.id]
+            items = [uninstall, c]
+        }
+        let idle = days.flatMap { $0 >= 90 ? Int($0) : nil }
+        things.append(Thing(id: "apps:" + path, kind: .app, title: name, path: path, bytes: gb(size) + dataBytes,
+                            lastActive: days.map { ago($0 + 0.2) },
+                            detail: idle.map { L("\($0) 天没打开", "unused for \($0) days") }, items: items))
+    }
+
+    mutating func apps() {
+        app("Docker", "Docker.app", size: 2.1, days: 41, data: [
+            ("Containers/com.docker.docker", 38.4), ("Group Containers/group.com.docker", 0.02), ("Caches/com.docker.docker", 0.31),
+            ("Preferences/com.docker.docker.plist", 0.0001),
+        ], caches: [("Caches/com.docker.docker", 0.31)], warnings: [
+            L("它在系统里还装了组件（com.docker.vmnetd.plist、com.docker.socket），这里卸载不会动它们；有自带的卸载程序的话最好用它",
+              "It installed system components (com.docker.vmnetd.plist, com.docker.socket) that uninstalling here leaves in place; use its own uninstaller if it has one"),
+        ])
+        app("Steam", "Steam.app", size: 0.03, days: 263, data: [
+            ("Application Support/Steam", 27.3), ("Logs/Steam", 0.04), ("Saved Application State/com.valvesoftware.steam.savedState", 0.0001),
+        ], caches: [("Logs/Steam", 0.04), ("Saved Application State/com.valvesoftware.steam.savedState", 0.0001)])
+        app("Final Cut Pro", "Final Cut Pro.app", size: 5.9, days: 158, data: [
+            ("Containers/com.apple.FinalCut", 1.6), ("Caches/com.apple.FinalCut", 0.92), ("Preferences/com.apple.FinalCut.plist", 0.0001),
+        ], caches: [("Caches/com.apple.FinalCut", 0.92)], appStore: true,
+            warnings: [L("移到废纸篓时，访达会要管理员密码", "Finder will ask for an administrator password to move it to the Trash")])
+        app("Slack", "Slack.app", size: 0.52, days: 0, data: [
+            ("Application Support/Slack", 2.4), ("Caches/com.tinyspeck.slackmacgap.ShipIt", 0.25),
+            ("HTTPStorages/com.tinyspeck.slackmacgap", 0.002), ("Preferences/com.tinyspeck.slackmacgap.plist", 0.0001),
+        ], caches: [("Application Support/Slack/Cache", 0.96), ("Application Support/Slack/Code Cache", 0.31),
+                    ("Caches/com.tinyspeck.slackmacgap.ShipIt", 0.25)])
+        app("Visual Studio Code", "Visual Studio Code.app", size: 0.62, days: 1, data: [
+            ("Application Support/Code", 1.8), ("Caches/com.microsoft.VSCode.ShipIt", 0.21), ("Preferences/com.microsoft.VSCode.plist", 0.0001),
+        ], caches: [("Application Support/Code/CachedData", 0.64), ("Application Support/Code/Cache", 0.18),
+                    ("Caches/com.microsoft.VSCode.ShipIt", 0.21)], warnings: [
+            L("用 Homebrew 装的：卸载后再运行 brew uninstall --cask visual-studio-code，Homebrew 才会忘掉它，命令行链接也会删掉",
+              "Installed with Homebrew: run brew uninstall --cask visual-studio-code afterwards so Homebrew forgets it and removes its command-line links"),
+        ])
+        app("Blender", "Blender.app", size: 1.9, days: 133, data: [
+            ("Application Support/Blender", 0.42), ("Caches/org.blenderfoundation.blender", 0.06),
+        ], caches: [("Caches/org.blenderfoundation.blender", 0.06)])
+        app("Zoom", "zoom.us.app", size: 0.61, days: 214, data: [
+            ("Application Support/zoom.us", 0.88), ("Logs/zoom.us", 0.12), ("Caches/us.zoom.xos", 0.19),
+            ("Preferences/us.zoom.xos.plist", 0.0001),
+        ], caches: [("Logs/zoom.us", 0.12), ("Caches/us.zoom.xos", 0.19)])
+        app("Figma", "Figma.app", size: 0.45, days: 6, data: [
+            ("Application Support/Figma", 1.1), ("Preferences/com.figma.Desktop.plist", 0.0001),
+        ], caches: [("Application Support/Figma/Cache", 0.52), ("Application Support/Figma/GPUCache", 0.03)])
+        app("Unity Hub", "Unity Hub.app", size: 0.41, days: 301, data: [
+            ("Application Support/UnityHub", 0.23), ("Logs/Unity", 0.02),
+        ], caches: [("Logs/Unity", 0.02)])
+    }
+
     // MARK: app data and system
 
     mutating func appData() {
@@ -409,7 +496,8 @@ private struct Builder {
             h + "/Library/Caches": gb(9), h + "/workspace": gb(6),
         ]
         var folded: Set<String> = [h + "/Pictures/Photos Library.photoslibrary"]
-        for t in things {
+        for (p, b) in appFolders { folders[p, default: 0] += b }
+        for t in things where t.kind != .app {
             let inside = t.items.filter { i in
                 guard let p = i.path, let tp = t.path else { return false }
                 return p.hasPrefix(tp + "/")

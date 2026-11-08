@@ -141,12 +141,18 @@ however useful the feature.
    and read file contents only when there is no other way (and say so in the
    user guide's privacy section).
 9. **App data is guidance only.** Folders that belong to another app get
-   `Tier.guide` and instructions, not a delete action.
+   `Tier.guide` and instructions, not a delete action. The one exception is
+   `AppRecognizer`: an app's data goes with the whole app, to the Trash, or
+   as its caches (Caches, Logs, saved window state, Electron's cache folders),
+   never preselected, and those items carry `app` so the executor skips them
+   while the app runs. Match data to an app only by bundle id or by a name
+   specific to that app.
 
 ## Adding a recognizer
 
 1. Pick the place: `DevCacheRecognizer` for tool caches,
-   `ModelRecognizer` for model stores, `AppDataRecognizer` for app data
+   `ModelRecognizer` for model stores, `AppRecognizer` for installed apps
+   and the folders they keep in `~/Library`, `AppDataRecognizer` for app data
    (guidance only), `ProjectRecognizer` for per-project artifacts. Create a
    new file only for a new kind of thing.
 2. Find the data through the tree (`ctx.tree.find`, `ctx.size`), not by

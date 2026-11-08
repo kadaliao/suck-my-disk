@@ -92,11 +92,11 @@ scripts/doc-screenshots.sh
 6. **要解释，也要能恢复。** 每一项都要有 `reason`；可再生的项只要有恢复办法，就要写上 `restore` 命令。
 7. **账要算实。** 数据可能通过克隆或硬链接和别处共享时，设置 `estimateIsLowerBound`，或者用 `SharedAccounting` 实测。永远不要承诺比删除实际能腾出的更多。一项包含另一项时，用 `covers` 标出来。
 8. **尊重隐私。** `ctx.isOffLimits(path)` 为真的路径一律跳过。只在别无办法时才读文件内容（并在用户指南的隐私部分写清楚）。
-9. **应用数据只给指引。** 属于其他 App 的目录用 `Tier.guide` 加说明，不给删除动作。
+9. **应用数据只给指引。** 属于其他 App 的目录用 `Tier.guide` 加说明，不给删除动作。唯一的例外是 `AppRecognizer`：应用的数据只会跟着整个应用进废纸篓，或者作为它的缓存被删（Caches、Logs、窗口状态、Electron 的缓存文件夹），从不预选；这些条目带着 `app`，应用在运行时执行器会跳过。只能按 bundle id 或专属于这个应用的名字把数据认给它。
 
 ## 添加识别器
 
-1. 选好位置：工具缓存放 `DevCacheRecognizer`，模型仓库放 `ModelRecognizer`，应用数据（只给指引）放 `AppDataRecognizer`，项目里的产物放 `ProjectRecognizer`。只有出现一类全新的东西时才新建文件。
+1. 选好位置：工具缓存放 `DevCacheRecognizer`，模型仓库放 `ModelRecognizer`，已安装的应用和它们在 `~/Library` 里的文件夹放 `AppRecognizer`，应用数据（只给指引）放 `AppDataRecognizer`，项目里的产物放 `ProjectRecognizer`。只有出现一类全新的东西时才新建文件。
 2. 通过树来找数据（`ctx.tree.find`、`ctx.size`），不要再遍历一遍磁盘。如果需要识别目录里某个常见文件名，就在 `CFastScan.h` / `fastscan.c` 里加一个标记位（同时改 `SNAP_MAGIC`，见下文）。
 3. 构造一个 `Thing`，里面放一个或多个 `ReclaimItem`：id（多次运行之间要保持不变，因为 App 按 id 记住用户的勾选）、label、path、bytes、estimate、tier、action、restore、reason、preselected、warnings。太小、不值得管的跳过（现有识别器的门槛在 50–200 MB 之间）。
 4. 如果要运行命令，先用 `Shell.which` 确认工具存在，并让调用尽量轻：识别会在后台反复运行。

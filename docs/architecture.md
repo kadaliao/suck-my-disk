@@ -10,8 +10,9 @@ executor.
 
 ```
 App/                          SwiftUI app (macOS 26, Liquid Glass)
-  SuckMyDiskApp.swift         window, menu bar item, ⌘R
+  SuckMyDiskApp.swift         window, menu bar item, Settings, ⌘R
   AppModel.swift              state: index, live loop, report, selection, cleanup
+  Updater.swift               self-update schedule: when to check, download, install, relaunch
   Snapshotter.swift           --snapshot mode: renders every section to PNG
   Demo.swift                  --demo mode: made-up data for screenshots and trying the app
   Views/                      Overview, Category (reclaim lists), Treemap, Timeline, shared components
@@ -20,8 +21,9 @@ Packages/DiskCore/            Swift package: the engine and the smd CLI
   Sources/CFastScan/          parallel getattrlistbulk walker, compact tree, snapshot file, live patch API (C)
   Sources/DiskIndex/          ScanTree, live updates, shared-data accounting, privacy, guards, SQLite store
   Sources/Insights/           activity signals (Claude Code, Codex, shell history, Spotlight)
-  Sources/Recognizers/        projects, frames, dev caches, models, app data, system; report and planner
+  Sources/Recognizers/        projects, frames, dev caches, models, installed apps, app data, system; report and planner
   Sources/Reclaim/            executor: re-checks guards, acts, writes the journal
+  Sources/Update/             self-update: GitHub release, checksum and signature checks, swap, relaunch
   Sources/smd/                command line
   Tests/DiskCoreTests/        Swift Testing suites
 scripts/                      release, icon and screenshot tooling
@@ -32,8 +34,8 @@ Module dependencies (from `Package.swift`):
 
 ```
 CFastScan ← DiskIndex ← Insights ← Recognizers ← Reclaim
-                                                    ↑
-                         smd and the app use all of them
+                ↑                                   ↑
+                Update (app only)    smd and the app use all of them
 ```
 
 ## The data flow
@@ -193,7 +195,19 @@ them.
    video on a tie.
 4. `DevCacheRecognizer`, `ModelRecognizer`, `AppDataRecognizer` and
    `SystemRecognizer` handle the rest.
-5. `refineShared` measures large items whose estimate is only a lower bound.
+5. `AppRecognizer` lists the apps in `/Applications` and `~/Applications` (and
+   one folder down) from their `Info.plist`, and matches their folders in
+   `~/Library` by bundle id, by names that extend it (`….ShipIt`, an
+   extension's id; the longest installed id wins), and in Application
+   Support, Caches and Logs by the app's exact name unless it is generic or
+   shared. Folders come from the tree, so privacy-protected ones are never
+   read; small files (preferences, cookies, launch agents) from a directory
+   listing. Each app becomes a `.app` Thing with an Uninstall item (`yours`, a
+   `compound` of `.trash` actions, the bundle first) and, when they add up to
+   1 MB, a Caches item (`regenerable`, `.deleteAll`), both carrying `app`.
+   Apps go last in the report so `smd things` numbers for everything else
+   stay put.
+6. `refineShared` measures large items whose estimate is only a lower bound.
 
 The model, in `Thing.swift`:
 
@@ -203,7 +217,8 @@ The model, in `Thing.swift`:
   less than `bytes` it occupies), its `Tier`, its `ReclaimAction`, a restore
   command, a reason, warnings, and whether it is preselected. `covers` lists
   items it already includes (`uv cache clean` covers `uv cache prune`) so
-  they are not counted or run twice.
+  they are not counted or run twice. `app` is the bundle path of the
+  installed app an item belongs to.
 - **`Tier`**: `lossless` (nothing is lost; reserved for clone merging),
   `regenerable` (deleted, can be rebuilt), `yours` (to the Trash), `guide`
   (instructions only).
@@ -226,8 +241,21 @@ rule. `force` lifts that rule for every item; `chosen`, the items the person
 ticked by hand, lifts it for the regenerable ones among them, so preselected
 items that changed after the scan stay put. For uv's commands it also checks
 that no uv is running, since uv would wait on its cache lock, and sets
-`UV_LOCK_TIMEOUT` in case one starts meanwhile. Then it acts: `removefile` for deletes,
+`UV_LOCK_TIMEOUT` in case one starts meanwhile. It also refuses anything System
+Integrity Protection guards (`SF_RESTRICTED`).
+
+Items with an `app` get more: the app must still be installed, and nothing may
+run from it (`Guards.program(inApp:in:)`, which also catches a translocated copy
+by its `/<Name>.app/Contents/` path). Picked by hand, they skip the 7-day rule,
+because opening an app changes its folders and "not running" is the check that
+matters. Folders that vanished since recognition are dropped from the action
+rather than failing it (`Executor.existing`).
+
+Then it acts: `removefile` for deletes,
 `FileManager.trashItem` for the Trash, or the tool's command through `Shell`.
+An `.app` bundle that `trashItem` can't move (it belongs to root, as App Store
+and installer apps do) is handed to Finder through `osascript`, which asks for
+an administrator password like a drag to the Trash would.
 Before deleting a Python virtualenv it records `pyvenv.cfg` and a
 `pip freeze`. Free space is measured before and after, and everything goes
 into the journal.
@@ -259,14 +287,66 @@ app opens with only the menu bar item, and saves the index on quit.
 (Liquid Glass only renders properly then) and captures the window from a
 terminal that has Screen Recording permission.
 
+Reclaim lists are `CategoryView`s, one per section (`.id(section)`, so each
+opens its own first groups). Apps differ in a few places: the sidebar, card and
+header show the space apps take up rather than "reclaimable" (uninstalling
+every app is not a plan), the overview's "awaits your call" leaves them out,
+the timeline and capacity bar leave them out (they overlap App data and
+Applications), each row shows the app's icon, and an Uninstall item lists its
+data folders with sizes from the tree (`AppDataList`). The Clean Up sheet groups
+uninstalls on their own.
+
 `--demo` replaces the disk with made-up data from `Demo.swift`: a report, an
 index built by `ScanTree.synthetic` from a list of folder sizes (an empty
 tree from `sm_tree_create`, filled in through the live-update patch API, with
-no disk access), two weeks of timeline, volume numbers, and a made-up
+no disk access), two weeks of timeline, volume numbers, made-up apps (with
+initial-letter tiles for icons, so no real app's icon shows), and a made-up
 external disk ("Studio SSD"). `AppModel` then
 skips rescans and saving, and Clean Up only removes the items from the lists;
 demo items never reach the executor. `scripts/doc-screenshots.sh` runs
 `snapshots.sh` in demo mode for the screenshots in `docs/images`.
+
+## Updates (`Update`, `Updater`)
+
+`Updates.latest` reads `releases/latest` from the GitHub API, which skips
+drafts and pre-releases, and accepts the release only when its tag is a plain
+version (`v0.5.1`) and its assets include `SuckMyDisk-<version>.zip` and
+`SHA256SUMS`. `release.sh` makes exactly those, so publishing a release is all
+it takes. Installing one:
+
+1. `download` fetches `SHA256SUMS`, then the zip into
+   `~/Library/Caches/com.kadaliao.SuckMyDisk/Updates` (a good copy already
+   there is reused), and drops the zip unless its hash matches.
+2. `unpack` expands it with `ditto` into an `itemReplacementDirectory` on the
+   installed app's volume, and `verify` checks the app:
+   `SecStaticCodeCheckValidity` (all architectures, nested code, strict)
+   against `Updates.requirement` (bundle id, Developer ID Application, team
+   `HMDAVG9B8J`, `notarized`), then its `Info.plist` version must equal the
+   release's. Only versions newer than the running one are taken, so an old
+   genuine release can't be replayed.
+3. `swap` trades the two bundles with `renamex_np(…, RENAME_SWAP)`, so a whole
+   app is at the path at every moment, and deletes the old one.
+4. `relaunch` posix_spawns `/bin/sh` in a new session (launchd would kill it
+   with the app's job otherwise) that waits for the app's PID to exit and runs
+   `open -a`. `--hidden` keeps the window closed
+   (`defaultLaunchBehavior(.suppressed)`) when it was closed before.
+
+The designated requirement doesn't change between releases, so TCC keeps the
+Full Disk Access grant.
+
+`Updater` in the app decides when. It checks 30 s after launch if the last
+check is a day old, then ticks every minute. Network trouble is retried after
+an hour; a version that fails its own checks or its install is left alone in
+the background until a newer one comes out, and the sidebar card says why. A
+downloaded update is checked at once, so a bad one is never left waiting. With
+automatic install on, it installs when the app is inactive, not hidden, has no
+window open, and nothing is loading, scanning, recognizing or cleaning, and
+relaunches only if that still holds afterwards; otherwise
+`applicationWillTerminate` installs it. A relaunch the user asks for waits for
+a running scan or cleanup to end. `Updates.blocker`
+explains when the app can't replace itself: App Translocation, a read-only
+volume (the DMG), or no write access. Builds not signed with the Developer ID
+(Xcode), `--demo` and `--snapshot` never check.
 
 ## Localization
 
@@ -290,6 +370,11 @@ fixtures built in temporary folders:
   not preselected, projects on an external disk (not in its dot folders),
   frames matching only their own video, npx packages, frame sequences versus
   camera bursts.
+- `AppTests`: which apps are listed, which folders belong to which app
+  (suffixes, team-id group containers, vendor folders and generic names left
+  out), Homebrew and system-component warnings, running apps left alone
+  (translocated copies too), hand-picked app items and the 7-day rule, a
+  removed app reported, shared folders protected.
 - `SafetyTests`: denied locations, covered items, executor refusing protected
   and git-tracked paths, files a running program uses, the 7-day rule and
   what lifts it, uv waiting for no one, Node scripts finding `node` from an

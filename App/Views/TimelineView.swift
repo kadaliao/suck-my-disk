@@ -7,7 +7,8 @@ struct TimelineView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let points = model.history.filter { $0.kind != "free" && $0.kind != ThingKind.system.rawValue }
+        // Apps overlap app data and the rest, so stacking them would count space twice.
+        let points = model.history.filter { $0.kind != "free" && $0.kind != ThingKind.system.rawValue && $0.kind != ThingKind.app.rawValue }
         let free = model.history.filter { $0.kind == "free" }
         let days = Set(model.history.map(\.day)).count
         ScrollView {

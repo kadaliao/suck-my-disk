@@ -42,7 +42,10 @@ public enum Recognize {
         let models = ModelRecognizer.recognize(ctx)
         let apps = AppDataRecognizer.recognize(ctx)
         let system = SystemRecognizer.recognize(ctx, volume: volume)
-        var all = projects + media + caches + models + apps + system
+        log(L("识别已安装的应用…", "Finding installed apps…"))
+        let installed = AppRecognizer.recognize(ctx)
+        // Installed apps go last, so the numbers `smd things` gives everything else stay put.
+        var all = projects + media + caches + models + apps + system + installed
         log(L("精确计算含共享数据的大项…", "Measuring items that share data…"))
         refineShared(&all, offLimits: ctx.offLimits)
         return Report(createdAt: Date(), volumeTotal: volume.total, volumeFree: volume.free,

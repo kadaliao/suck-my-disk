@@ -13,13 +13,20 @@ public enum Guards {
         home + "/.ssh",
         home + "/.gnupg",
         "/System", "/usr", "/bin", "/sbin",
+        "/Library",                           // every user's: apps' system components, fonts, ...
+        "/Applications/Utilities",
     ]
+    /// Folders that hold many apps' data or many apps: never removed as a whole.
+    static let deniedFolders: Set<String> = Set(["/Applications", home + "/Applications"] + [
+        "Application Support", "Caches", "Containers", "Group Containers", "Preferences", "Saved Application State",
+        "HTTPStorages", "WebKit", "Logs", "Cookies", "LaunchAgents",
+    ].map { home + "/Library/" + $0 })
     static let deniedSuffixes = [".photoslibrary", ".musiclibrary", ".tvlibrary", ".imovielibrary", ".fcpbundle"]
 
     /// True if the path must never be deleted or trashed by SuckMyDisk.
     public static func isDenied(_ path: String) -> Bool {
         let p = Firmlinks.userPath((path as NSString).standardizingPath)
-        if p == home || p == "/" || p == "/Users" || p == home + "/Library" || p == "/Volumes" { return true }
+        if p == home || p == "/" || p == "/Users" || p == home + "/Library" || p == "/Volumes" || deniedFolders.contains(p) { return true }
         // A disk's own root folder.
         if ExternalVolumes.mountPoint(of: p).map({ Firmlinks.userPath($0) == p }) ?? false { return true }
         for d in deniedPrefixes where p == d || p.hasPrefix(d + "/") { return true }
@@ -82,6 +89,14 @@ public enum Guards {
     public static func program(using path: String, in programs: [Program]) -> Program? {
         let p = Firmlinks.userPath((path as NSString).standardizingPath)
         return programs.first { $0.command.contains(p + "/") || $0.command.contains(p + " ") || $0.command.hasSuffix(p) }
+    }
+
+    /// A running program from the app at `path`, or from a copy of it that macOS runs from
+    /// somewhere else (App Translocation runs downloaded apps from a hidden folder).
+    public static func program(inApp path: String, in programs: [Program]) -> Program? {
+        if let p = program(using: path, in: programs) { return p }
+        let inside = "/" + (path as NSString).lastPathComponent + "/Contents/"
+        return programs.first { $0.command.contains(inside) }
     }
 
     /// A change this recent keeps an item from being cleaned, unless the person picked

@@ -10,12 +10,13 @@ SuckMyDisk reads and stores. For installation, see the [README](../README.md#ins
 - [The window](#the-window)
 - [Overview](#overview)
 - [Reclaim lists](#reclaim-lists)
-  - [Projects](#projects) · [Media](#media) · [Dev caches](#dev-caches) · [Models](#models) · [App data](#app-data)
+  - [Projects](#projects) · [Media](#media) · [Dev caches](#dev-caches) · [Models](#models) · [Apps](#apps) · [App data](#app-data)
 - [Cleaning up](#cleaning-up)
 - [Whole Disk](#whole-disk)
 - [Timeline](#timeline)
 - [Menu bar](#menu-bar)
 - [Live updates and rescanning](#live-updates-and-rescanning)
+- [Updating SuckMyDisk](#updating-suckmydisk)
 - [Command line (`smd`)](#command-line-smd)
 - [Safety rules](#safety-rules)
 - [Data and privacy](#data-and-privacy)
@@ -68,7 +69,7 @@ The sidebar has three groups, and a fourth when an external disk is connected:
 | Group | Sections |
 | --- | --- |
 | — | **Overview** |
-| Reclaim | **Projects**, **Media**, **Dev caches**, **Models**, **App data**; each shows how much it can free |
+| Reclaim | **Projects**, **Media**, **Dev caches**, **Models**, **Apps**, **App data**; each shows how much it can free (Apps: how much the apps and their data take up) |
 | Explore | **Whole Disk** (treemap), **Timeline** (growth per day) |
 | External Disks | One row per connected disk; see [External disks](#external-disks) |
 
@@ -90,8 +91,9 @@ disk you rarely need it; see [Live updates](#live-updates-and-rescanning).
   opens the confirmation sheet for exactly those items.
 - **"… more awaits your call."** When more than 1 GB is reclaimable but not
   preselected (simulators, the whole uv cache, projects you are still working
-  on), a link takes you to it.
-- **Category cards.** One per reclaim list with its total; click to open it.
+  on), a link takes you to it. Apps are not counted here.
+- **Category cards.** One per reclaim list with its total (for Apps, the space
+  the apps and their data take up); click to open it.
 - **Honest numbers.** Space SuckMyDisk can explain but not reclaim for you:
   - **Trash**: still uses space until emptied.
   - **Local snapshots**: created by macOS updates and Time Machine. Their
@@ -107,7 +109,7 @@ disk you rarely need it; see [Live updates](#live-updates-and-rescanning).
 
 ![The Projects list](images/en/projects.png)
 
-Projects, Media, Dev caches, Models and App data share one layout:
+Projects, Media, Dev caches, Models, Apps and App data share one layout:
 
 - At the top: the total that can be freed, and a sentence on what this list
   is about. The search field in the toolbar filters the list.
@@ -242,6 +244,67 @@ machine's disk image on the Mac may shrink only later.
 
 Nothing here is preselected.
 
+### Apps
+
+![Apps](images/en/apps.png)
+
+Every app in `/Applications` and `~/Applications` (and one folder down, such
+as a vendor's folder), with the data it keeps in your Library, largest first.
+`Utilities`, apps macOS protects (Safari), symlinks and SuckMyDisk itself are
+left out. Under each app's name: when it was last opened (from Finder's record
+and Spotlight) and where it is. Apps not opened for 90 days carry an
+"unused for N days" tag.
+
+Each app has up to two items. Nothing is preselected.
+
+| Item | What happens | Badge |
+| --- | --- | --- |
+| **Uninstall** | The app and every data folder found for it go to the Trash, the app first. The folders are listed under the item with their sizes. | to Trash |
+| **Caches** | Its caches, logs and saved window state are deleted. The app, its settings and your data stay; it rebuilds the rest when it next runs. Shown when they add up to 1 MB or more. | rebuildable |
+
+Ticking Uninstall includes Caches. The space taken by things moved to the
+Trash comes back when you empty the Trash.
+
+**Where an app's data is found** (all in `~/Library`):
+
+| Folder | Matched by | Uninstall | Caches |
+| --- | --- | --- | --- |
+| `Caches`, `Logs` | bundle id, or the app's exact name | ✓ | ✓ |
+| `Saved Application State` | bundle id | ✓ | ✓ |
+| `Application Support` | bundle id, or the app's exact name | ✓ | its `Cache`, `Code Cache`, `GPUCache` and similar folders (Electron and Chromium apps) |
+| `Containers` | bundle id | ✓ | `Data/Library/Caches` inside it |
+| `Group Containers` | `<team id>.<bundle id>` or `group.<bundle id>` | ✓ | |
+| `HTTPStorages`, `WebKit`, `Cookies` | bundle id | ✓ | |
+| `Preferences`, `LaunchAgents` | bundle id (`.plist`) | ✓ | |
+
+"Bundle id" includes names that extend it, such as `com.tinyspeck.slackmacgap.ShipIt`
+or an extension's `….FinderSync`; when two apps' ids both match, the longer id
+wins. A folder named after the app counts only if the name is specific to one
+app (not `Code`, `Google` or `Python`, and not shared by two apps). A vendor's
+own folder (`com.microsoft`, say) is never taken for one of its apps.
+`Containers` and `Group Containers` are only seen with
+[Full Disk Access](#full-disk-access).
+
+**Warnings** on Uninstall say when:
+
+- Finder will ask for an administrator password: apps from the App Store or an
+  installer belong to the system, so SuckMyDisk asks Finder to move them, just
+  as if you dragged them to the Trash.
+- the app installed components for every user (launch daemons, privileged
+  helpers in `/Library`). Uninstalling here leaves them; use the app's own
+  uninstaller if it has one.
+- Homebrew installed it: run `brew uninstall --cask <name>` afterwards so
+  Homebrew forgets it and removes its command-line links.
+- Setapp manages it: uninstall it in Setapp, or Setapp may put it back.
+
+**Safety.** Both items are skipped while anything runs from the app, including
+its helpers and a copy macOS runs from a hidden folder; quit it first. Picked
+by hand, they don't wait out the 7-day rule (opening an app changes its
+folders), since "not running" is the check that matters for an app and
+everything goes to the Trash or is rebuilt. If a folder disappeared since the
+scan (an app tidying its own caches), the rest still goes; if the app itself is
+gone, the item is skipped.
+
 ### App data
 
 ![App data](images/en/app-data.png)
@@ -250,6 +313,7 @@ Large data that belongs to an app (1 GB or more): WeChat, Chrome, Lark,
 Notion, Claude's VM bundles, OrbStack, iPhone backups. Deleting these folders
 directly can break the app, so SuckMyDisk only tells you where to clean them
 from inside the app, for example *WeChat → Settings → General → Storage*.
+To remove an app together with all its data, use [Apps](#apps) instead.
 
 ## Cleaning up
 
@@ -258,6 +322,7 @@ from inside the app, for example *WeChat → Settings → General → Storage*.
 1. Click **Clean Up** on the overview (the preselected items) or **Clean Up…**
    in a list's bottom bar (your selection).
 2. The sheet shows the total and every item, grouped by what will happen:
+   - **Uninstall apps**: each app and its data go to the Trash.
    - **Delete**: rebuildable; the restore steps are logged.
    - **Run the tool's own cleanup**: the tool knows what is still in use.
    - **Move to Trash**: your files, recoverable from the Trash.
@@ -319,7 +384,8 @@ per category per day), so the chart becomes useful after a few days of use.
 The menu bar shows free space. Click it for a small panel with free space, the
 capacity bar, how much can still be freed, and **Open SuckMyDisk**. The menu
 bar item keeps following the disk while the app runs, even with the window
-closed.
+closed. When a new version is waiting, the panel shows it with a button to
+install it.
 
 ## Live updates and rescanning
 
@@ -339,6 +405,35 @@ After the first scan, SuckMyDisk watches the disk through FSEvents:
 A full rescan happens on its own when the event history can't be trusted:
 macOS dropped events, the volume's event database changed, or a new version of
 SuckMyDisk changed the index format. You can also rescan any time with ⌘R.
+
+## Updating SuckMyDisk
+
+From version 0.5.0 on, SuckMyDisk keeps itself up to date from
+[GitHub Releases](https://github.com/kadaliao/suck-my-disk/releases):
+
+- About once a day it asks GitHub for the latest release. When that is newer,
+  it downloads the app in the background (about 4 MB) and checks it: the
+  download must match the release's `SHA256SUMS`, and the app inside must be
+  SuckMyDisk at that version, signed with the same Developer ID as your copy
+  and notarized by Apple. Anything else is thrown away.
+- It installs the new version while SuckMyDisk is in the background with its
+  window closed and nothing is scanning or cleaning: the app is replaced in
+  one step, and it reopens in a second or two, still only in the menu bar.
+  The index is saved first, so nothing is rescanned, and Full Disk Access
+  carries over because the signature is the same.
+- While you're using it, the bottom of the sidebar and the menu bar panel show
+  the new version with **Relaunch to Update**; clicked during a scan or a
+  cleanup, it relaunches once that ends. Quitting installs it too.
+
+**Check for Updates…** in the SuckMyDisk menu checks right away and offers to
+install. In **Settings** (⌘,) you can turn off automatic checks, or keep them
+and turn off **Download and install automatically**: a new version is then
+only offered, and installs when you click **Update**.
+
+SuckMyDisk can't replace itself when it runs from the disk image or from a
+quarantined location (move it into Applications first), or when your account
+can't write to its folder. It then links to the download page instead. Builds
+you make yourself don't update.
 
 ## Command line (`smd`)
 
@@ -413,6 +508,25 @@ smd wake ~/code/my-old-app               # print the commands that bring it back
 The path must be a project root as shown by `smd things`. `wake` only prints
 commands such as `cd ~/code/my-old-app && pnpm install`; it runs nothing.
 
+### `smd apps` and `smd uninstall`
+
+```sh
+smd apps                         # every installed app, its size with data, caches, last opened
+smd apps --json                  # the same as JSON
+smd uninstall Zoom               # dry run: what goes to the Trash
+smd uninstall Zoom --yes         # do it
+smd uninstall Slack --keep-app   # dry run: only Slack's caches
+smd uninstall /Applications/Slack.app --keep-app --yes
+```
+
+Name the app as `smd apps` shows it, by its file name, or by its path. The dry
+run lists every data folder that would go and the warnings. Like
+`smd hibernate`, the app counts as picked by hand, and every
+[safety rule](#safety-rules) still applies: an app that is running is
+skipped, naming the process. If an App Store app needs Finder and Finder can't
+be reached (over SSH, say), the item fails with a note to drag the app to the
+Trash yourself.
+
 ### `smd journal`
 
 The last 50 actions: time, result (`done`, `skipped`, `failed`), action, space
@@ -457,7 +571,7 @@ Scanner speed with 4, 8, 16 and 32 threads, for development. Defaults to
 ### Using `smd` from scripts and coding agents
 
 `smd things --json` prints the whole report: every group with its kind
-(`project`, `media`, `devCache`, `model`, `appData`, `system`), size, last
+(`project`, `media`, `devCache`, `model`, `app`, `appData`, `system`), size, last
 activity, and items with their tier, action, estimate, restore command,
 warnings and whether they are preselected. Progress messages go to stderr, so
 stdout is clean JSON.
@@ -479,7 +593,12 @@ These apply to the app and the CLI alike, and no recognizer can override them.
   Drive, …)
 - `~/Library/Mail`, `~/Library/Messages`, `~/Library/Keychains`, `~/.ssh`,
   `~/.gnupg`
-- `/System`, `/usr`, `/bin`, `/sbin`
+- `/System`, `/usr`, `/bin`, `/sbin`, `/Library` and `/Applications/Utilities`
+- folders that hold many apps: `/Applications` and `~/Applications` themselves,
+  and `~/Library/Application Support`, `Caches`, `Containers`,
+  `Group Containers`, `Preferences`, `Saved Application State`, `HTTPStorages`,
+  `WebKit`, `Logs`, `Cookies` and `LaunchAgents` themselves
+- anything System Integrity Protection guards
 - anything inside a `.git` folder
 - Photos, Music, TV, iMovie and Final Cut libraries
 
@@ -491,8 +610,10 @@ These apply to the app and the CLI alike, and no recognizer can override them.
 - no running program uses it: it is neither where a running program lives nor
   among its arguments (if the running programs can't be listed, nothing is
   deleted). A skipped item names the program and its PID.
-- it has not changed in the last 7 days, unless it is a rebuildable item you
-  ticked yourself (the CLI's `--force` lifts this one for every item). A
+- for an app's items, nothing runs from that app (its main program, helpers,
+  or a copy macOS runs from elsewhere), and the app is still installed
+- it has not changed in the last 7 days, unless it is a rebuildable item or an
+  app's item you ticked yourself (the CLI's `--force` lifts this one for every item). A
   skipped item says when it can go: “changed Oct 31, 18:07; can be cleaned
   after Nov 7, 18:07”.
 - for uv's cache commands, no uv is running. A long-running `uv run` holds the
@@ -505,13 +626,20 @@ These apply to the app and the CLI alike, and no recognizer can override them.
   journal. Before a Python virtualenv is deleted, its `pyvenv.cfg` and a
   `pip freeze` are saved in the journal so it can be rebuilt faithfully.
 - Your own files are moved to the Trash.
+- Uninstalling moves the app and its data to the Trash. An app that belongs to
+  the system (App Store, installers) is moved by Finder, which asks for your
+  password.
 - When a tool has its own cleanup command, that command runs instead.
-- App data is never deleted; you get instructions.
+- App data under App data is never deleted; you get instructions. Under Apps,
+  an app's data goes only with the whole app, to the Trash, or as its caches.
 
 ## Data and privacy
 
-SuckMyDisk makes no network requests and sends nothing anywhere. There is no
-account and no telemetry.
+Nothing about your disk leaves the Mac. There is no account and no telemetry.
+The only network requests are the [update check](#updating-suckmydisk): about
+once a day SuckMyDisk asks `api.github.com` for the latest release, and
+downloads it from GitHub when it is new. The requests carry the app's version
+and nothing else. Turn them off in Settings.
 
 **What it stores**, in `~/Library/Application Support/SuckMyDisk/`:
 
@@ -521,6 +649,10 @@ account and no telemetry.
 | `last-report.json` | The latest recognition report |
 | `report-<volume-uuid>.json` | The latest report for an external disk (its index is an `index-<volume-uuid>.bin` too) |
 | `smd.sqlite` | Daily size history (for the Timeline) and the journal of every cleanup |
+
+A downloaded update waits in `~/Library/Caches/com.kadaliao.SuckMyDisk/Updates`
+until it is installed. Settings are in the `com.kadaliao.SuckMyDisk`
+preferences.
 
 **What it reads**
 
@@ -536,6 +668,12 @@ account and no telemetry.
 - A few small files to recognize things: `pyvenv.cfg`, Ollama manifests,
   Xcode's `info.plist` in DerivedData, the headers of frame images and
   candidate videos.
+- For [Apps](#apps): each app's `Info.plist`, the date Finder records when an
+  app is opened (and Spotlight's), the names of the files in
+  `~/Library/Preferences`, `LaunchAgents`, `Cookies` and `HTTPStorages`, the
+  names in `/Library/LaunchDaemons`, `/Library/LaunchAgents` and
+  `/Library/PrivilegedHelperTools`, and Homebrew's install receipts in its
+  `Caskroom`.
 - Answers from tools it asks read-only questions: `uv cache dir`,
   `pnpm store path`, `xcrun simctl list devices`, `docker system df`,
   `tmutil listlocalsnapshots`, `git check-ignore` and `git ls-files`.
@@ -547,7 +685,8 @@ account and no telemetry.
 3. Delete its data:
 
    ```sh
-   rm -rf ~/Library/Application\ Support/SuckMyDisk
+   rm -rf ~/Library/Application\ Support/SuckMyDisk ~/Library/Caches/com.kadaliao.SuckMyDisk
+   defaults delete com.kadaliao.SuckMyDisk
    ```
 
 4. Optionally remove SuckMyDisk from System Settings → Privacy & Security →
@@ -598,7 +737,23 @@ fails with `env: node: No such file or directory`, update to 0.3.1 or newer.
 
 **How do I get something back?**
 Rebuildable items: run the restore command shown in the list, in the journal
-(`smd journal`), or from `smd wake <project>`. Your files: open the Trash.
+(`smd journal`), or from `smd wake <project>`. Your files and uninstalled apps:
+open the Trash and use **Put Back**.
+
+**Uninstall was skipped: "… is running; quit it first".**
+Something from inside the app is still running: the app, a menu bar helper, or
+a background service it started. Quit the app (and its helper, if it has one
+in the menu bar) and try again. The message names the process and its PID.
+
+**Does uninstalling remove everything the app left?**
+Everything SuckMyDisk could match to it in your Library, which is listed under
+the item before you confirm. It doesn't touch components installed for every
+user (`/Library`, privileged helpers; a warning says when there are some), or
+folders whose names don't give the app away. Apps with their own uninstaller
+remove those better.
+
+**I uninstalled an app but free space didn't change.**
+It's in the Trash. Empty the Trash to get the space back.
 
 **macOS asked me whether SuckMyDisk may access a folder.**
 It shouldn't: without Full Disk Access those folders are skipped. Please
@@ -645,3 +800,7 @@ The release notes say when that happens.
   recognizer request.
 - Full Disk Access is requested through a banner only; there is no guided
   setup yet.
+- Apps: data left behind by apps that are already gone is not listed, and
+  components an app installed for every user are not removed.
+- `smd` doesn't update itself. Download it again from Releases when the app
+  updates.

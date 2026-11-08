@@ -8,8 +8,9 @@ SuckMyDisk 怎样把一块磁盘变成一份「哪些可以放心删」的清单
 
 ```
 App/                          SwiftUI app (macOS 26, Liquid Glass)
-  SuckMyDiskApp.swift         window, menu bar item, ⌘R
+  SuckMyDiskApp.swift         window, menu bar item, Settings, ⌘R
   AppModel.swift              state: index, live loop, report, selection, cleanup
+  Updater.swift               self-update schedule: when to check, download, install, relaunch
   Snapshotter.swift           --snapshot mode: renders every section to PNG
   Demo.swift                  --demo mode: made-up data for screenshots and trying the app
   Views/                      Overview, Category (reclaim lists), Treemap, Timeline, shared components
@@ -18,8 +19,9 @@ Packages/DiskCore/            Swift package: the engine and the smd CLI
   Sources/CFastScan/          parallel getattrlistbulk walker, compact tree, snapshot file, live patch API (C)
   Sources/DiskIndex/          ScanTree, live updates, shared-data accounting, privacy, guards, SQLite store
   Sources/Insights/           activity signals (Claude Code, Codex, shell history, Spotlight)
-  Sources/Recognizers/        projects, frames, dev caches, models, app data, system; report and planner
+  Sources/Recognizers/        projects, frames, dev caches, models, installed apps, app data, system; report and planner
   Sources/Reclaim/            executor: re-checks guards, acts, writes the journal
+  Sources/Update/             self-update: GitHub release, checksum and signature checks, swap, relaunch
   Sources/smd/                command line
   Tests/DiskCoreTests/        Swift Testing suites
 scripts/                      release, icon and screenshot tooling
@@ -30,8 +32,8 @@ project.yml                   XcodeGen spec for the app (the .xcodeproj is gener
 
 ```
 CFastScan ← DiskIndex ← Insights ← Recognizers ← Reclaim
-                                                    ↑
-                         smd and the app use all of them
+                ↑                                   ↑
+                Update (app only)    smd and the app use all of them
 ```
 
 ## 数据流
@@ -107,12 +109,13 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 2. `ProjectRecognizer` 遍历一遍树，找出项目（git 仓库或有清单文件的目录）和它们的产物。只有大到值得列出的通用目录（`build`、`dist`、`out`）才会并行跑 `git check-ignore` / `git ls-files`。最后决定哪些项预选。
 3. `FrameSequenceRecognizer` 找出图片很多的目录，读几张图片的头信息，再在附近找一个帧数相同的视频（视频轨的时长 × 帧率，相差不超过 3 帧或 0.5%）。从帧往上找时，跳过别的项目（有 git 仓库或清单文件的文件夹）和装着别组帧的文件夹；帧数一样时选最新的视频。
 4. 其余交给 `DevCacheRecognizer`、`ModelRecognizer`、`AppDataRecognizer` 和 `SystemRecognizer`。
-5. `refineShared` 对估计值只是下限的大项做精确计算。
+5. `AppRecognizer` 根据 `Info.plist` 列出 `/Applications` 和 `~/Applications`（以及下一层）里的应用，再到 `~/Library` 里认它们的文件夹：按 bundle id、按在它后面接着的名字（`….ShipIt`、扩展的 id；归装着的应用里 id 最长的那个），在 Application Support、Caches 和 Logs 里还按和应用完全相同的名字（太通用或两个应用同名的除外）。文件夹来自树，所以受隐私保护的目录永远不会被读；小文件（偏好设置、Cookie、启动代理）来自目录列表。每个应用是一个 `.app` 类的 `Thing`，带一个「卸载」项（`yours`，由一串 `.trash` 组成的 `compound`，应用本身排第一）；缓存合计到 1 MB 时再带一个「缓存」项（`regenerable`，`.deleteAll`）。两项都带着 `app`。应用排在报告最后，这样 `smd things` 给其他东西的编号不会变。
+6. `refineShared` 对估计值只是下限的大项做精确计算。
 
 数据模型在 `Thing.swift` 里：
 
 - **`Thing`** 是用户认得出的一样东西：一个项目、一份缓存、一个模型仓库。它有类别、大小、上次活跃时间和一组清理项。
-- **`ReclaimItem`** 是一个动作：能腾出多少（`estimate`，可能小于它占用的 `bytes`）、`Tier`、`ReclaimAction`、恢复命令、理由、警告，以及是否预选。`covers` 列出它已经包含的项（`uv cache clean` 包含 `uv cache prune`），避免重复计算或重复执行。
+- **`ReclaimItem`** 是一个动作：能腾出多少（`estimate`，可能小于它占用的 `bytes`）、`Tier`、`ReclaimAction`、恢复命令、理由、警告，以及是否预选。`covers` 列出它已经包含的项（`uv cache clean` 包含 `uv cache prune`），避免重复计算或重复执行。`app` 是这一项所属的已安装应用的路径。
 - **`Tier`**：`lossless`（什么都不丢，留给克隆合并用）、`regenerable`（直接删，可以重建）、`yours`（进废纸篓）、`guide`（只给指引）。
 - **`ReclaimAction`**：`delete`、`deleteAll`、`trash`、`command`（工具自带的清理命令）、`compound`、`none`。
 
@@ -122,7 +125,11 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 
 ## 执行（`Reclaim`）
 
-`Executor` 一项一项地执行。每一项动手之前，对它要碰的每个路径都检查一遍：`Guards.isDenied`、路径还在且不是符号链接、git 没有跟踪里面的任何文件（拿不准就当作有）、没有正在运行的程序的命令行提到它（用 `ps` 查，同样拿不准就不删），以及 7 天规则。`force` 对所有条目解除这条规则；`chosen` 是用户亲手勾的条目，其中可再生的不受它限制，所以扫描之后又改过的预选条目照样不动。跑 uv 的命令前还会确认没有 uv 在运行，因为 uv 会等缓存的锁；同时设上 `UV_LOCK_TIMEOUT`，防止这期间正好又起了一个。然后才动手：删除用 `removefile`，进废纸篓用 `FileManager.trashItem`，工具命令通过 `Shell` 运行。删 Python 虚拟环境之前，会先记下 `pyvenv.cfg` 和一份 `pip freeze`。执行前后各量一次可用空间，所有结果都写进日志。
+`Executor` 一项一项地执行。每一项动手之前，对它要碰的每个路径都检查一遍：`Guards.isDenied`、路径还在且不是符号链接、git 没有跟踪里面的任何文件（拿不准就当作有）、没有正在运行的程序的命令行提到它（用 `ps` 查，同样拿不准就不删），以及 7 天规则。`force` 对所有条目解除这条规则；`chosen` 是用户亲手勾的条目，其中可再生的不受它限制，所以扫描之后又改过的预选条目照样不动。跑 uv 的命令前还会确认没有 uv 在运行，因为 uv 会等缓存的锁；同时设上 `UV_LOCK_TIMEOUT`，防止这期间正好又起了一个。受系统完整性保护（`SF_RESTRICTED`）的东西一律不碰。
+
+带 `app` 的条目还要多查几样：应用还装着，而且没有任何东西从它里面运行（`Guards.program(inApp:in:)`，按 `/<Name>.app/Contents/` 也能认出被 macOS 挪到别处运行的副本）。用户亲手勾的，不受 7 天规则限制：打开应用就会改动它的文件夹，对应用来说要紧的是「没在运行」。识别之后消失的文件夹会从动作里去掉，而不是让整项失败（`Executor.existing`）。
+
+然后才动手：删除用 `removefile`，进废纸篓用 `FileManager.trashItem`，工具命令通过 `Shell` 运行。`trashItem` 移不动的 `.app`（归 root 所有，App Store 和安装器装的都是这样）交给访达，通过 `osascript` 来移，访达会像拖进废纸篓时一样要管理员密码。删 Python 虚拟环境之前，会先记下 `pyvenv.cfg` 和一份 `pip freeze`。执行前后各量一次可用空间，所有结果都写进日志。
 
 ## 存储
 
@@ -141,7 +148,22 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 
 `--snapshot <dir>` 把每个页面渲染成 PNG 然后退出。`scripts/snapshots.sh` 通过 LaunchServices 用这个模式启动 App（只有这样 Liquid Glass 才能正常渲染），再在有屏幕录制权限的终端里截取窗口。
 
-`--demo` 用 `Demo.swift` 里的虚构数据代替磁盘：一份报告；一份用 `ScanTree.synthetic` 按文件夹大小清单搭出来的索引（先用 `sm_tree_create` 建一棵空树，再通过实时更新的补丁接口填进去，全程不碰磁盘）；两周的时间线；磁盘容量数字；以及一块虚构的外接磁盘（「Studio SSD」）。这时 `AppModel` 会跳过重新扫描和保存，「清理」只是把条目从列表里拿掉，演示数据永远不会交给执行器。`scripts/doc-screenshots.sh` 用演示模式运行 `snapshots.sh`，生成 `docs/images` 里的截图。
+清理列表是 `CategoryView`，每个分区一个（`.id(section)`，所以每个列表都会展开自己的前几组）。「应用」有几处不同：侧边栏、卡片和标题显示应用占的空间，而不是「可以腾出」（把所有应用都卸载不算一个计划）；概览的「等你决定」、时间线和容量条都不算它（和应用数据、应用程序重叠）；每一行显示应用图标；「卸载」项下面用树里的大小列出它的数据文件夹（`AppDataList`）。清理确认窗口把卸载单独分成一组。
+
+`--demo` 用 `Demo.swift` 里的虚构数据代替磁盘：一份报告；一份用 `ScanTree.synthetic` 按文件夹大小清单搭出来的索引（先用 `sm_tree_create` 建一棵空树，再通过实时更新的补丁接口填进去，全程不碰磁盘）；两周的时间线；磁盘容量数字；虚构的应用（图标用首字母方块，不会显示任何真实应用的图标）；以及一块虚构的外接磁盘（「Studio SSD」）。这时 `AppModel` 会跳过重新扫描和保存，「清理」只是把条目从列表里拿掉，演示数据永远不会交给执行器。`scripts/doc-screenshots.sh` 用演示模式运行 `snapshots.sh`，生成 `docs/images` 里的截图。
+
+## 自动更新（`Update`、`Updater`）
+
+`Updates.latest` 从 GitHub API 读 `releases/latest`（它会跳过草稿和 pre-release），只有标签是纯版本号（`v0.5.1`）、附件里有 `SuckMyDisk-<version>.zip` 和 `SHA256SUMS` 时才采用。`release.sh` 正好产出这两样，所以发布一个 release 就够了。安装分四步：
+
+1. `download` 先取 `SHA256SUMS`，再把 zip 下载到 `~/Library/Caches/com.kadaliao.SuckMyDisk/Updates`（那里已有完好的一份就直接复用），哈希对不上就丢掉。
+2. `unpack` 用 `ditto` 解压到和已安装 App 同一个卷上的 `itemReplacementDirectory`，再由 `verify` 检查 App：用 `SecStaticCodeCheckValidity`（所有架构、嵌套代码、严格模式）对照 `Updates.requirement`（bundle id、Developer ID Application、团队 `HMDAVG9B8J`、`notarized`），然后 `Info.plist` 里的版本号必须和 release 一致。只接受比正在运行的版本更新的版本，所以旧的正版 release 没法被拿来重放。
+3. `swap` 用 `renamex_np(…, RENAME_SWAP)` 让两个 bundle 互换位置，那个路径上每一刻都是完整的 App；然后删掉旧的。
+4. `relaunch` 用 posix_spawn 在新会话里起一个 `/bin/sh`（否则 launchd 会把它和 App 的任务一起杀掉），等 App 的 PID 退出后执行 `open -a`。原来窗口关着时带上 `--hidden`，让窗口保持关闭（`defaultLaunchBehavior(.suppressed)`）。
+
+两个版本之间指定要求（designated requirement）不变，所以 TCC 里的完全磁盘访问授权保留。
+
+App 里的 `Updater` 决定什么时候做。上次检查已经过了一天的话，启动 30 秒后检查，之后每分钟看一次。网络出问题一小时后重试；某个版本自己的检查或安装没通过，后台就不再碰它，直到出了更新的版本，侧边栏卡片会写明原因。下载好的更新马上检查，坏的不会留着等安装。开着自动安装时，等 App 不在前台、没被隐藏、没有打开的窗口、也没有在载入、扫描、识别或清理时安装，装完这些条件仍然成立才重新打开；否则由 `applicationWillTerminate` 在退出时安装。用户自己点的重新打开，会等正在进行的扫描或清理结束。App 没法替换自己时（App Translocation、只读卷即 DMG、没有写权限），`Updates.blocker` 给出原因。不是用 Developer ID 签名的构建（Xcode）、`--demo` 和 `--snapshot` 都不检查更新。
 
 ## 多语言
 
@@ -156,5 +178,6 @@ App 和命令行里所有给用户看的文字，都通过 `Fmt.swift` 里的 `L
 - `ScannerTests`：克隆和硬链接的计数、折叠和标记位、快照的保存与读回、合成树、firmlinks。
 - `AccountingTests`：同时释放 uv 缓存和 `.venv`。
 - `RecognizerTests`：项目产物和恢复命令、活跃项目不预选、外接磁盘上的项目（不含盘上的点文件夹）、帧只和自己的视频配对、npx 的包、渲染帧序列和相机连拍的区分。
+- `AppTests`：列出哪些应用、哪个文件夹归哪个应用（后缀、带团队 ID 的群组容器、厂商文件夹和通用名字不算）、Homebrew 和系统组件的警告、正在运行的应用不动（被挪到别处运行的副本也算）、亲手勾的应用条目和 7 天规则、应用已经不在时如实报告、公共文件夹受保护。
 - `SafetyTests`：受保护位置、被包含的项、执行器拒绝受保护路径和 git 跟踪的路径、正在运行的程序在用的文件、7 天规则和什么情况下不受它限制、uv 不再干等别的 uv 进程、Node 脚本在 App 的精简 PATH 下也能找到 `node`。
 - `LiveIndexTests`：打过补丁的树和重新扫描的结果一致、保存后的树能继续增长、大目录排队等待、会弹授权的目录从不被打开、FSEvents 驱动更新。

@@ -3,7 +3,7 @@ import Insights
 import Foundation
 
 public enum ThingKind: String, Codable, Sendable, CaseIterable {
-    case project, media, devCache, model, appData, system
+    case project, media, devCache, model, app, appData, system
 
     public var title: String {
         switch self {
@@ -11,6 +11,7 @@ public enum ThingKind: String, Codable, Sendable, CaseIterable {
         case .media: return L("作品", "Media")
         case .devCache: return L("开发缓存", "Dev caches")
         case .model: return L("模型", "Models")
+        case .app: return L("应用", "Apps")
         case .appData: return L("应用数据", "App data")
         case .system: return L("系统", "System")
         }
@@ -43,6 +44,15 @@ public enum ReclaimAction: Codable, Sendable, Equatable {
     case command(argv: [String], cwd: String?)
     indirect case compound(actions: [ReclaimAction])
     case none
+
+    /// Everything it removes goes to the Trash: an app being uninstalled, your own files.
+    public var isTrashOnly: Bool {
+        switch self {
+        case .trash: return true
+        case .compound(let acts): return !acts.isEmpty && acts.allSatisfy(\.isTrashOnly)
+        default: return false
+        }
+    }
 }
 
 public struct ReclaimItem: Codable, Sendable, Identifiable {
@@ -60,10 +70,14 @@ public struct ReclaimItem: Codable, Sendable, Identifiable {
     public var warnings: [String] = []
     /// Items this one already includes; selecting it makes them redundant.
     public var covers: [String] = []
+    /// The installed app (its bundle path) this item belongs to. Clean Up skips the item while
+    /// anything runs from that app. Picked by hand, it doesn't wait out the 7-day rule:
+    /// "not running" is the check that matters for an app, and what goes is rebuilt or trashed.
+    public var app: String?
 
     public init(id: String, label: String, path: String?, bytes: UInt64, estimate: UInt64? = nil,
                 tier: Tier, action: ReclaimAction, restore: String? = nil, reason: String,
-                preselected: Bool, warnings: [String] = []) {
+                preselected: Bool, warnings: [String] = [], app: String? = nil) {
         self.id = id
         self.label = label
         self.path = path
@@ -75,6 +89,7 @@ public struct ReclaimItem: Codable, Sendable, Identifiable {
         self.reason = reason
         self.preselected = preselected
         self.warnings = warnings
+        self.app = app
     }
 }
 

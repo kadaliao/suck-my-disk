@@ -16,7 +16,7 @@ struct OverviewView: View {
                 }
                 reclaimHero
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 14)], spacing: 14) {
-                    ForEach([ThingKind.project, .media, .devCache, .model, .appData], id: \.self) { k in
+                    ForEach([ThingKind.project, .media, .devCache, .model, .app, .appData], id: \.self) { k in
                         KindCard(kind: k)
                     }
                 }
@@ -124,7 +124,7 @@ struct KindCard: View {
                     Spacer()
                     Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                 }
-                Text(kind == .appData ? Fmt.bytes(model.occupied(kind)) : Fmt.bytes(reclaim))
+                Text(kind == .appData || kind == .app ? Fmt.bytes(model.occupied(kind)) : Fmt.bytes(reclaim))
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                 Text(subtitle(things: things, selected: selected))
@@ -147,6 +147,9 @@ struct KindCard: View {
             return L("\(things.count) 个项目有可再生的产物，\(sleeping) 个在沉睡", "\(things.count) projects with rebuildable output, \(sleeping) asleep")
         case .appData:
             return L("微信、Chrome 这类只能在应用里清理，这里告诉你怎么做", "WeChat, Chrome…: cleaned inside each app; here's how")
+        case .app:
+            let idle = things.filter { $0.detail != nil }.count
+            return L("\(things.count) 个应用连同数据，\(idle) 个三个月没打开", "\(things.count) apps with their data, \(idle) unused for 3 months")
         default:
             return selected > 0 ? L("已勾选 \(Fmt.bytes(selected))", "\(Fmt.bytes(selected)) selected")
                                 : L("\(things.count) 组，默认都没勾，需要你决定", "\(things.count) groups, none preselected")

@@ -1,22 +1,28 @@
 import DiskIndex
 import Recognizers
 import SwiftUI
+import Update
 
 /// Starts the model at launch (the main window may not be open), and saves the
 /// index on quit so the next launch only replays what changed since.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static var model: AppModel?
+    @MainActor static var updater: Updater?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
             guard let model = Self.model else { return }
             if CommandLine.arguments.contains("--demo") { model.startDemo() } else { model.start() }
+            Self.updater?.start(model)
             Snapshotter.runIfRequested(model)
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        MainActor.assumeIsolated { Self.model?.saveNow() }
+        MainActor.assumeIsolated {
+            Self.model?.saveNow()
+            Self.updater?.installOnQuit()
+        }
     }
 }
 
@@ -24,24 +30,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct SuckMyDiskApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model: AppModel
+    @State private var updater: Updater
+    /// Reopened by an update while its window was closed: stay in the menu bar.
+    private let hidden = CommandLine.arguments.contains("--hidden")
 
     init() {
-        // Screenshot and demo runs never read folders macOS would ask about.
-        if CommandLine.arguments.contains("--snapshot") || CommandLine.arguments.contains("--demo") { Privacy.alwaysSkip = true }
+        // Screenshot and demo runs never read folders macOS would ask about, and never update.
+        let staged = CommandLine.arguments.contains("--snapshot") || CommandLine.arguments.contains("--demo")
+        if staged { Privacy.alwaysSkip = true }
         let m = AppModel()
         _model = State(initialValue: m)
         AppDelegate.model = m
+        let u = Updater(enabled: !staged)
+        _updater = State(initialValue: u)
+        AppDelegate.updater = u
     }
 
     var body: some Scene {
         Window("SuckMyDisk", id: "main") {
             RootView()
                 .environment(model)
+                .environment(updater)
                 .frame(minWidth: 960, minHeight: 640)
         }
         .defaultSize(width: 1180, height: 760)
+        .defaultLaunchBehavior(hidden ? .suppressed : .automatic)
         .windowToolbarStyle(.unified)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button(L("检查更新…", "Check for Updates…")) { Task { await updater.check(userInitiated: true) } }
+                    .disabled(updater.isWorking)
+            }
             CommandGroup(after: .newItem) {
                 Button(L("重新扫描", "Rescan")) { Task { await model.rescanCurrent() } }
                     .keyboardShortcut("r")
@@ -49,8 +68,12 @@ struct SuckMyDiskApp: App {
             }
         }
 
+        Settings {
+            SettingsView().environment(updater)
+        }
+
         MenuBarExtra {
-            MenuBarPanel().environment(model)
+            MenuBarPanel().environment(model).environment(updater)
         } label: {
             Label(Fmt.bytes(model.volume.free), systemImage: "internaldrive")
         }
@@ -60,6 +83,7 @@ struct SuckMyDiskApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(Updater.self) private var updater
 
     var body: some View {
         @Bindable var model = model
@@ -67,7 +91,7 @@ struct RootView: View {
             List(selection: $model.page) {
                 ForEach([Section.overview], id: \.self) { s in sidebarRow(s) }
                 SwiftUI.Section(L("可以清理", "Reclaim")) {
-                    ForEach([Section.project, .media, .devCache, .model, .appData], id: \.self) { s in sidebarRow(s) }
+                    ForEach([Section.project, .media, .devCache, .model, .apps, .appData], id: \.self) { s in sidebarRow(s) }
                 }
                 SwiftUI.Section(L("透视", "Explore")) {
                     ForEach([Section.disk, .timeline], id: \.self) { s in sidebarRow(s) }
@@ -79,6 +103,8 @@ struct RootView: View {
                 }
             }
             .listStyle(.sidebar)
+            .safeAreaInset(edge: .bottom) { UpdateCard() }
+            .animation(.smooth, value: updater.release)
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
             detail
@@ -106,8 +132,9 @@ struct RootView: View {
             HStack {
                 Text(s.title)
                 Spacer()
-                if let k = s.kind, model.reclaimable(k) > 0 {
-                    Text(Fmt.bytes(model.reclaimable(k)))
+                // Apps: what they take up; uninstalling all of them is not "reclaimable".
+                if let k = s.kind, case let b = k == .app ? model.occupied(k) : model.reclaimable(k), b > 0 {
+                    Text(Fmt.bytes(b))
                         .font(.caption)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
@@ -151,7 +178,8 @@ struct RootView: View {
             case .overview: OverviewView()
             case .disk: TreemapView()
             case .timeline: TimelineView()
-            default: CategoryView(kind: model.section.kind!)
+            // Each list starts fresh: its own groups open, its own search.
+            default: CategoryView(kind: model.section.kind!).id(model.section)
             }
         }
     }
