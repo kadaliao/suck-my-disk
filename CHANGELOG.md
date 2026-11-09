@@ -8,6 +8,12 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-11-09
+
+Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and
+notarized. Copies of 0.5.0 and later get this release through the in-app
+update. The index format is unchanged, so upgrading needs no rescan.
+
 ### Changed
 
 - **Clean Up has its own page.** Once you confirm, the whole window shows the
@@ -244,7 +250,8 @@ Developer ID and notarized.
   `smd reclaim` (dry run by default), `smd hibernate`, `smd wake`,
   `smd journal`.
 
-[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.4.1...v0.5.0
