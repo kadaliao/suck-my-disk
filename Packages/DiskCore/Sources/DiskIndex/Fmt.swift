@@ -13,6 +13,9 @@ public enum Fmt {
         return (Locale.preferredLanguages.first ?? "en").hasPrefix("zh")
     }()
 
+    /// "zh" or "en": what `L` picks in this process.
+    public static var language: String { isChinese ? "zh" : "en" }
+
     /// Decimal units, like Finder.
     public static func bytes(_ v: UInt64) -> String {
         let d = Double(v)

@@ -8,6 +8,15 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Language and appearance in Settings.** Settings (⌘,) has a General
+  section: **Appearance** picks Light, Dark or the system's, and changes at
+  once; **Language** picks 简体中文, English or the system's. A new language
+  shows after the app reopens, which **Relaunch Now** does in a second or two
+  with scan results kept; the lists are rewritten in the new language right
+  after. The `smd` command keeps following the system language.
+
 ## [0.5.3] - 2026-11-09
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and

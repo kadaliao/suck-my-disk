@@ -107,10 +107,36 @@ struct UpdateMenuRow: View {
 
 struct SettingsView: View {
     @Environment(Updater.self) private var updater
+    @AppStorage(Appearance.key) private var appearance = Appearance.system
+    @State private var language = Language.saved
 
     var body: some View {
         @Bindable var updater = updater
         Form {
+            SwiftUI.Section {
+                Picker(L("外观", "Appearance"), selection: $appearance) {
+                    ForEach(Appearance.allCases) { Text($0.title).tag($0) }
+                }
+                Picker(L("语言", "Language"), selection: $language) {
+                    ForEach(Language.allCases) { Text($0.title).tag($0) }
+                }
+                if language.isChinese != Fmt.isChinese {
+                    HStack {
+                        Text(L("重新打开 SuckMyDisk 后换成 English。", "Switches to 简体中文 when SuckMyDisk reopens.")
+                             + (updater.isBusy ? L("正在扫描或清理，结束后才能重新打开。", " It can reopen once scanning or cleaning ends.") : ""))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button(L("立即重新打开", "Relaunch Now"), action: relaunch)
+                            .disabled(updater.isBusy)
+                    }
+                }
+            } header: {
+                Text(L("通用", "General"))
+            }
+            .onChange(of: appearance) { Appearance.apply(appearance) }
+            .onChange(of: language) { Language.save(language) }
+
             SwiftUI.Section {
                 Toggle(L("自动检查更新", "Check for updates automatically"), isOn: $updater.checksAutomatically)
                 Toggle(L("自动下载并安装", "Download and install automatically"), isOn: $updater.installsAutomatically)
@@ -136,6 +162,16 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Scan results are kept: the index is saved on quit, and the lists are rewritten in the new language.
+    private func relaunch() {
+        do {
+            try Updates.relaunch(Bundle.main.bundleURL)
+            NSApp.terminate(nil)
+        } catch {
+            NSAlert(error: error).runModal()
+        }
     }
 
     private var footer: String {

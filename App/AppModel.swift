@@ -544,9 +544,10 @@ final class AppModel {
         }
         if liveState == .catchingUp, live.watcher.caughtUp, live.watcher.pendingCount == 0 {
             liveState = .live
-            // Back after a while: recognize again with what changed meanwhile.
+            // Back after a while, or in another language: recognize again with what changed meanwhile.
             if let r = baseReport {
-                if Date().timeIntervalSince(r.createdAt) > 600 || changedSinceRecognition >= 50_000_000 {
+                if Date().timeIntervalSince(r.createdAt) > 600 || changedSinceRecognition >= 50_000_000
+                    || r.language != Fmt.language {
                     await recognize(background: true)
                 }
             } else {

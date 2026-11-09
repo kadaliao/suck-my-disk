@@ -8,13 +8,17 @@ public struct Report: Codable, Sendable {
     public var volumeFree: UInt64
     public var scanned: UInt64
     public var things: [Thing]
+    /// The language its labels and reasons were written in (`Fmt.language`); nil in older reports.
+    public var language: String?
 
-    public init(createdAt: Date, volumeTotal: UInt64, volumeFree: UInt64, scanned: UInt64, things: [Thing]) {
+    public init(createdAt: Date, volumeTotal: UInt64, volumeFree: UInt64, scanned: UInt64, things: [Thing],
+                language: String? = Fmt.language) {
         self.createdAt = createdAt
         self.volumeTotal = volumeTotal
         self.volumeFree = volumeFree
         self.scanned = scanned
         self.things = things
+        self.language = language
     }
 
     public var preselected: UInt64 {

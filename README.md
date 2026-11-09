@@ -58,7 +58,7 @@ back.
 - **Local only.** Nothing about your disk leaves the Mac: no telemetry, no
   account. The one network request is the daily update check with GitHub,
   which you can turn off.
-- **Chinese and English**, following the system language.
+- **Chinese and English**, following the system language or your pick in Settings, with light and dark appearance.
 
 ## What it finds
 

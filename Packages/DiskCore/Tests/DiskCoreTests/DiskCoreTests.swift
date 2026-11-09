@@ -605,4 +605,17 @@ final class Fixture {
         #expect(ReclaimAction.compound(actions: [.trash(path: "/a"), .trash(path: "/b")]).isTrashOnly)
         #expect(!ReclaimAction.compound(actions: [.trash(path: "/a"), .delete(path: "/b")]).isTrashOnly)
     }
+
+    /// The app rewrites a saved report whose language isn't the one it now shows.
+    @Test func reportsRememberTheirLanguage() throws {
+        let enc = JSONEncoder(), dec = JSONDecoder()
+        let r = Report(createdAt: Date(), volumeTotal: 1, volumeFree: 1, scanned: 0, things: [])
+        #expect(r.language == Fmt.language)
+        #expect(try dec.decode(Report.self, from: enc.encode(r)).language == Fmt.language)
+        // Reports saved before the tag existed still load, with no language.
+        var old = try JSONSerialization.jsonObject(with: enc.encode(r)) as! [String: Any]
+        old["language"] = nil
+        let loaded = try dec.decode(Report.self, from: JSONSerialization.data(withJSONObject: old))
+        #expect(loaded.language == nil)
+    }
 }

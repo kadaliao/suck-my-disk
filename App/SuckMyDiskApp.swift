@@ -9,6 +9,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static var model: AppModel?
     @MainActor static var updater: Updater?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Before any window shows. `--snapshot-appearance` overrides it later.
+        MainActor.assumeIsolated { Appearance.apply() }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
             guard let model = Self.model else { return }

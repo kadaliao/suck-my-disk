@@ -36,7 +36,11 @@ current through FSEvents, so later launches only replay what changed while the
 app was closed (usually under a second).
 
 The app follows the system language: Chinese if Chinese is your first
-preferred language, English otherwise.
+preferred language, English otherwise. To pick one yourself, open **Settings**
+(⌘,) → **Language** and choose 简体中文 or English; the change shows after the
+app reopens (**Relaunch Now** does it in a second or two, and scan results are
+kept). **Appearance** in the same place picks Light or Dark instead of
+following the system, and changes right away.
 
 ## Full Disk Access
 
@@ -446,7 +450,8 @@ you make yourself don't update.
 ## Command line (`smd`)
 
 `smd` uses the same engine, index and journal as the app. Output follows the
-system language; set `SMD_LANG=zh` or `SMD_LANG=en` to force one.
+system language, not the app's Language setting; set `SMD_LANG=zh` or
+`SMD_LANG=en` to force one.
 
 ### `smd things`
 

@@ -62,6 +62,7 @@ enum Snapshotter {
             try? await Task.sleep(for: .milliseconds(900))
             await capture(to: dir.appendingPathComponent("clean-sheet.png"), sheet: true)
             model.confirming = false
+            await captureSettings(to: dir.appendingPathComponent("settings.png"))
             // Only made-up data: anywhere else this would really clean.
             if model.demo != nil {
                 try? await Task.sleep(for: .milliseconds(700))
@@ -87,8 +88,29 @@ enum Snapshotter {
         }
     }
 
-    static func capture(to url: URL, sheet: Bool = false) async {
-        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.frame.width > 600 }) else { return }
+    /// Opens the Settings window above the main one, captures it and closes it again.
+    static func captureSettings(to url: URL) async {
+        let before = Set(NSApp.windows.filter(\.isVisible).map(ObjectIdentifier.init))
+        // The app menu's Settings… item: macOS ignores `showSettingsWindow:` sent directly.
+        guard let menu = NSApp.mainMenu?.items.first?.submenu,
+              let item = menu.items.firstIndex(where: { $0.keyEquivalent == "," }) else { return }
+        menu.performActionForItem(at: item)
+        var settings: NSWindow?
+        for _ in 0..<30 where settings == nil {
+            try? await Task.sleep(for: .milliseconds(100))
+            settings = NSApp.windows.first { $0.isVisible && !before.contains(ObjectIdentifier($0)) && $0.styleMask.contains(.titled) }
+        }
+        guard let settings else { return }
+        settings.level = NSWindow.Level(NSWindow.Level.screenSaver.rawValue + 1)
+        settings.orderFrontRegardless()
+        try? await Task.sleep(for: .milliseconds(900))
+        await capture(to: url, window: settings)
+        settings.close()
+        try? await Task.sleep(for: .milliseconds(300))
+    }
+
+    static func capture(to url: URL, sheet: Bool = false, window chosen: NSWindow? = nil) async {
+        guard let window = chosen ?? NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.frame.width > 600 }) else { return }
         let target = sheet ? (window.attachedSheet ?? window) : window
         // --snapshot-external: launched through LaunchServices (Liquid Glass renders properly only then),
         // so another process takes the shot: we write "<png>.region" (x,y,w,h, top-left origin) and wait.
