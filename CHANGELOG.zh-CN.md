@@ -6,6 +6,10 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.5.4] - 2026-11-09
+
+需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。0.5.0 及以后的版本会通过 App 内更新拿到这个版本。索引格式没变，升级后不用重新扫描。
+
 ### 新增
 
 - **设置里可以选语言和外观。** 设置（⌘,）多了「通用」一栏：「外观」可选浅色、深色或跟随系统，
@@ -146,7 +150,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.3...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.0...v0.5.1

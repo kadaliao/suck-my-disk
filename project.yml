@@ -9,8 +9,8 @@ packages:
     path: Packages/DiskCore
 settings:
   base:
-    MARKETING_VERSION: "0.5.3"
-    CURRENT_PROJECT_VERSION: "10"
+    MARKETING_VERSION: "0.5.4"
+    CURRENT_PROJECT_VERSION: "11"
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: HMDAVG9B8J
     CODE_SIGN_STYLE: Manual
