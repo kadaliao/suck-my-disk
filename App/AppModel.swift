@@ -83,12 +83,73 @@ enum LiveState: Equatable {
     case live
 }
 
-struct CleanResult: Identifiable {
-    let id = UUID()
-    var done: Int
-    var skipped: [(String, String)]
-    var failed: [(String, String)]
-    var freed: UInt64
+/// One Clean Up run. The window shows it full size from the first item until it is closed.
+@MainActor @Observable
+final class CleanRun {
+    enum State: Equatable {
+        case waiting, running, done
+        case skipped(String), failed(String)
+        /// Stopped before its turn came.
+        case notRun
+
+        var message: String? {
+            switch self {
+            case .skipped(let m), .failed(let m): return m
+            default: return nil
+            }
+        }
+    }
+
+    struct Row: Identifiable {
+        let item: ReclaimItem
+        let color: Color
+        var state: State = .waiting
+        var id: String { item.id }
+    }
+
+    var rows: [Row]
+    /// The external disk being cleaned; nil is the startup disk.
+    let diskName: String?
+    /// What the plan expects to free.
+    let estimate: UInt64
+    let started = Date()
+    /// Measured from the volume's free space, not estimated. It only grows, so other
+    /// programs writing meanwhile don't make it jump back.
+    private(set) var freed: UInt64 = 0
+    /// The running item finishes; the rest don't start.
+    var stopping = false
+    private(set) var finishedAt: Date?
+
+    init(items: [ReclaimItem], kinds: [String: ThingKind], diskName: String?) {
+        rows = items.map { Row(item: $0, color: kinds[$0.id]?.color ?? .accentColor) }
+        self.diskName = diskName
+        estimate = items.reduce(0) { $0 + $1.estimate }
+    }
+
+    var finished: Bool { finishedAt != nil }
+    var current: Row? { rows.first { $0.state == .running } }
+    /// Items whose turn is over.
+    var settled: Int { rows.count { $0.state != .waiting && $0.state != .running } }
+    var done: Int { rows.count { $0.state == .done } }
+    var skipped: Int { rows.count { if case .skipped = $0.state { true } else { false } } }
+    var failed: Int { rows.count { if case .failed = $0.state { true } else { false } } }
+    var notRun: Int { rows.count { $0.state == .notRun } }
+    /// Done items that went to the Trash: that space comes back when the Trash is emptied.
+    var trashed: UInt64 {
+        rows.filter { $0.state == .done && $0.item.action.isTrashOnly }.reduce(0) { $0 + $1.item.estimate }
+    }
+
+    func measure(free now: UInt64, before: UInt64) {
+        if now > before, now - before > freed { freed = now - before }
+    }
+
+    /// Demo mode: nothing is measured.
+    func add(_ bytes: UInt64) { freed += bytes }
+
+    func finish() {
+        for i in rows.indices where rows[i].state == .waiting { rows[i].state = .notRun }
+        finishedAt = Date()
+    }
 }
 
 private let log = Logger(subsystem: "com.kadaliao.SuckMyDisk", category: "live")
@@ -115,7 +176,8 @@ final class AppModel {
     var cleanDisk: ExternalDisk?
     /// External disk pages show the map instead of the list.
     var showDiskMap = false
-    var lastResult: CleanResult?
+    /// The Clean Up run on screen. It stays after the run ends, as the result, until closed.
+    var cleanRun: CleanRun?
     var history: [ReportStore.DayPoint] = []
     /// Documents, Downloads, Pictures… minus the things already counted inside them.
     var userFiles: UInt64 = 0
@@ -544,28 +606,42 @@ final class AppModel {
         let disk = cleanDisk
         let items = cleanPlan.items
         guard !items.isEmpty else { return }
+        let kinds = Dictionary((disk?.things ?? things).flatMap { t in t.items.map { ($0.id, t.kind) } },
+                               uniquingKeysWith: { a, _ in a })
+        let run = CleanRun(items: items, kinds: kinds, diskName: disk?.volume.name)
+        withAnimation(.smooth(duration: 0.45)) { cleanRun = run }
         // Demo items point at made-up paths and real tools: never hand them to the executor.
-        if demo != nil { return cleanDemo(items, disk: disk) }
+        if demo != nil { return await cleanDemo(run, disk: disk) }
         let mount = disk?.volume.path ?? Firmlinks.dataRoot
         let before = VolumeInfo.freeBytes(mount)
-        var done = 0
-        var skipped: [(String, String)] = []
-        var failed: [(String, String)] = []
+        // Twice a second, so the number grows while a big folder goes.
+        let meter = Task { @MainActor in
+            while !Task.isCancelled {
+                run.measure(free: VolumeInfo.freeBytes(mount), before: before)
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
         var doneIDs: Set<String> = []
         let store = try? Store()
         let chosen = userOn   // ticked by hand, not preselected
         for (n, item) in items.enumerated() {
+            if run.stopping { break }
             phase = .cleaning(current: item.label, done: n, total: items.count)
+            run.rows[n].state = .running
             let outcome = await Task.detached(priority: .userInitiated) {
                 Executor(store: store, chosen: chosen, log: { _ in }).run([item])[0]
             }.value
             switch outcome.status {
-            case .done: done += 1; doneIDs.insert(item.id); doneIDs.formUnion(item.covers)
-            case .skipped: skipped.append((item.label, outcome.message))
-            case .failed: failed.append((item.label, outcome.message))
+            case .done:
+                run.rows[n].state = .done
+                doneIDs.insert(item.id)
+                doneIDs.formUnion(item.covers)
+            case .skipped: run.rows[n].state = .skipped(outcome.message)
+            case .failed: run.rows[n].state = .failed(outcome.message)
             }
         }
-        let after = VolumeInfo.freeBytes(mount)
+        meter.cancel()
+        run.measure(free: VolumeInfo.freeBytes(mount), before: before)
         if let disk {
             // External disks are not followed live: drop what is gone, then scan again for the map.
             disk.drop(doneIDs, save: true)
@@ -584,29 +660,48 @@ final class AppModel {
         }
         selection.subtract(doneIDs)
         userOn.subtract(doneIDs)
-        lastResult = CleanResult(done: done, skipped: skipped, failed: failed, freed: after > before ? after - before : 0)
+        withAnimation(.smooth(duration: 0.6)) { run.finish() }
         phase = .idle
         if disk == nil { wake?.yield() }
+    }
+
+    /// Back to the window from a finished run.
+    func closeCleanRun() {
+        guard cleanRun?.finished == true else { return }
+        withAnimation(.smooth(duration: 0.4)) { cleanRun = nil }
     }
 }
 
 extension AppModel {
     /// Clean Up in demo mode: the items leave the lists and free space grows; nothing runs.
-    private func cleanDemo(_ items: [ReclaimItem], disk: ExternalDisk?) {
-        let ids = Set(items.map(\.id)).union(items.flatMap(\.covers))
-        let freed = items.reduce(UInt64(0)) { $0 + $1.estimate }
+    private func cleanDemo(_ run: CleanRun, disk: ExternalDisk?) async {
+        var ids: Set<String> = []
+        for n in run.rows.indices {
+            if run.stopping { break }
+            let item = run.rows[n].item
+            phase = .cleaning(current: item.label, done: n, total: run.rows.count)
+            run.rows[n].state = .running
+            // Slow enough to watch; bigger items take a little longer.
+            try? await Task.sleep(for: .milliseconds(500 + Int(min(item.estimate / 20_000_000, 900))))
+            run.rows[n].state = .done
+            ids.insert(item.id)
+            ids.formUnion(item.covers)
+            // What goes to the Trash still takes space, as in a real run.
+            if !item.action.isTrashOnly { run.add(item.estimate) }
+        }
+        let freed = run.freed
         if let disk {
             disk.drop(ids, save: false)
             withAnimation(.spring(duration: 0.8)) { disk.volume.free += freed }
-        } else {
-            guard var r = report else { return }
+        } else if var r = report {
             for t in r.things.indices { r.things[t].items.removeAll { ids.contains($0.id) } }
             r.things.removeAll { $0.items.isEmpty && $0.kind != .system && $0.kind != .appData }
             setReport(r, tree: tree)
             withAnimation(.spring(duration: 0.8)) { volume.free += freed }
         }
         selection.subtract(ids)
-        lastResult = CleanResult(done: items.count, skipped: [], failed: [], freed: freed)
+        withAnimation(.smooth(duration: 0.6)) { run.finish() }
+        phase = .idle
     }
 }
 

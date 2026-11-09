@@ -328,13 +328,21 @@ To remove an app together with all its data, use [Apps](#apps) instead.
    - **Move to Trash**: your files, recoverable from the Trash.
 3. Click **Clean Up** to confirm, or **Cancel**.
 
-Items run one at a time, with progress in the pill at the bottom. Right before
-each one, every [safety rule](#safety-rules) is checked again; anything that
-fails is skipped with the reason. When it finishes, a sheet shows how much
-space was actually freed (measured from the volume's free space, not
-estimated).
+Once you confirm, Clean Up takes the whole window:
 
-Moved-to-Trash items still use space until you empty the Trash.
+![Clean Up in progress](images/en/cleaning.png)
+
+Items run one at a time. The ring fills in item by item, in each kind's color,
+and the number in the middle is the space freed so far, measured from the
+volume's free space, not estimated. The list below shows whether each item is
+waiting, running, done, skipped or failed. Right before each one, every
+[safety rule](#safety-rules) is checked again; anything that fails is skipped
+with the reason. **Stop** finishes the item that is running and leaves the
+rest alone. When the run ends, the same page shows the result: how much was
+freed, what didn't go and why, and how long it took. Click **Done** to go back.
+
+Moved-to-Trash items still use space until you empty the Trash; the result
+says how much.
 
 ## Whole Disk
 

@@ -8,6 +8,16 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Clean Up has its own page.** Once you confirm, the whole window shows the
+  run instead of a small progress pill at the bottom: a ring that fills in item
+  by item in each kind's color, the space freed so far (measured from the
+  disk's free space as it goes), and every item with what happened to it. When
+  the run ends, the same page shows the result, replacing the result sheet,
+  and says how much went to the Trash and is freed only once you empty it.
+  **Stop** finishes the running item and leaves the rest alone.
+
 ## [0.5.2] - 2026-11-08
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and

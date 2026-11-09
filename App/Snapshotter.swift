@@ -62,6 +62,27 @@ enum Snapshotter {
             try? await Task.sleep(for: .milliseconds(900))
             await capture(to: dir.appendingPathComponent("clean-sheet.png"), sheet: true)
             model.confirming = false
+            // Only made-up data: anywhere else this would really clean.
+            if model.demo != nil {
+                try? await Task.sleep(for: .milliseconds(700))
+                Task { await model.clean() }
+                // A few items in, so the ring is part filled, on a big item: it runs longest,
+                // so the title has finished changing when the shot is taken.
+                for _ in 0..<300 {
+                    if let r = model.cleanRun {
+                        if r.finished { break }
+                        if r.settled >= 3, (r.current?.item.estimate ?? 0) >= 10_000_000_000 { break }
+                    }
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                try? await Task.sleep(for: .milliseconds(700))
+                await capture(to: dir.appendingPathComponent("cleaning.png"))
+                for _ in 0..<600 where model.cleanRun?.finished != true {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                try? await Task.sleep(for: .milliseconds(1500))
+                await capture(to: dir.appendingPathComponent("cleaned.png"))
+            }
             exit(0)
         }
     }

@@ -106,24 +106,35 @@ struct RootView: View {
             .safeAreaInset(edge: .bottom) { UpdateCard() }
             .animation(.smooth, value: updater.release)
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+            .toolbar(removing: model.cleanRun == nil ? nil : .sidebarToggle)
         } detail: {
             detail
                 .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            Task { await model.rescanCurrent() }
-                        } label: {
-                            Label(L("重新扫描", "Rescan"), systemImage: "arrow.clockwise")
+                    if model.cleanRun == nil {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                Task { await model.rescanCurrent() }
+                            } label: {
+                                Label(L("重新扫描", "Rescan"), systemImage: "arrow.clockwise")
+                            }
+                            .disabled(model.isBusy || (model.currentDisk?.isBusy ?? false))
+                            .help(model.currentDisk.map { L("重新扫描「\($0.volume.name)」", "Rescan “\($0.volume.name)”") }
+                                  ?? L("重新扫描整个磁盘", "Rescan the whole disk"))
                         }
-                        .disabled(model.isBusy || (model.currentDisk?.isBusy ?? false))
-                        .help(model.currentDisk.map { L("重新扫描「\($0.volume.name)」", "Rescan “\($0.volume.name)”") }
-                              ?? L("重新扫描整个磁盘", "Rescan the whole disk"))
                     }
                 }
                 .overlay(alignment: .bottom) { StatusPill() }
         }
+        // Clean Up takes the whole window, from the first item to the result. The toolbar
+        // stays (hiding it hides the window buttons too); only its items go.
+        .toolbar(removing: model.cleanRun == nil ? nil : .title)
+        .toolbarBackgroundVisibility(model.cleanRun == nil ? .automatic : .hidden, for: .windowToolbar)
+        .overlay {
+            if let run = model.cleanRun {
+                CleanRunView(run: run).transition(.opacity)
+            }
+        }
         .sheet(isPresented: $model.confirming) { CleanSheet() }
-        .sheet(item: $model.lastResult) { r in ResultSheet(result: r) }
     }
 
     @ViewBuilder

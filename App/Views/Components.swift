@@ -141,8 +141,8 @@ struct StatusPill: View {
             case .scanning(let files, let bytes):
                 pill(L("正在扫描 \(files.formatted()) 个文件 · \(Fmt.bytes(bytes))", "Scanning \(files.formatted()) files · \(Fmt.bytes(bytes))"))
             case .recognizing(let m): pill(m)
-            case .cleaning(let cur, let done, let total):
-                pill(L("正在清理 \(done + 1)/\(total) · \(cur)", "Cleaning \(done + 1)/\(total) · \(cur)"))
+            // Clean Up has its own page.
+            case .cleaning: EmptyView()
             }
         }
         .padding(.bottom, 16)
@@ -291,45 +291,6 @@ struct CleanSheet: View {
     private func title(_ n: Int) -> String {
         guard let d = model.cleanDisk else { return L("清理 \(n) 项", "Clean up \(n) items") }
         return L("清理「\(d.volume.name)」上的 \(n) 项", "Clean up \(n) items on “\(d.volume.name)”")
-    }
-}
-
-struct ResultSheet: View {
-    var result: CleanResult
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        let failed = !result.failed.isEmpty
-        VStack(spacing: 14) {
-            Image(systemName: failed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(failed ? .orange : .green)
-            Text(L("腾出了", "Freed")).foregroundStyle(.secondary)
-            BigNumber(bytes: result.freed, size: 48)
-            Text(summary).foregroundStyle(.secondary)
-            if failed { list(L("没清掉", "Failed"), result.failed, .orange) }
-            if !result.skipped.isEmpty { list(L("跳过", "Skipped"), result.skipped, .secondary) }
-            Button(L("好", "Done")) { dismiss() }.keyboardShortcut(.defaultAction).padding(.top, 6)
-        }
-        .padding(28)
-        .frame(width: 400)
-    }
-
-    private var summary: String {
-        var parts = [L("完成 \(result.done) 项", "\(result.done) done")]
-        if !result.failed.isEmpty { parts.append(L("\(result.failed.count) 项没清掉", "\(result.failed.count) failed")) }
-        if !result.skipped.isEmpty { parts.append(L("\(result.skipped.count) 项跳过", "\(result.skipped.count) skipped")) }
-        return parts.joined(separator: L("，", ", "))
-    }
-
-    private func list(_ title: String, _ rows: [(String, String)], _ color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(color)
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, x in
-                Text(x.0 + L("：", ": ") + x.1).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
