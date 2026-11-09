@@ -10,7 +10,8 @@ SuckMyDisk reads and stores. For installation, see the [README](../README.md#ins
 - [The window](#the-window)
 - [Overview](#overview)
 - [Reclaim lists](#reclaim-lists)
-  - [Projects](#projects) · [Media](#media) · [Dev caches](#dev-caches) · [Models](#models) · [Apps](#apps) · [App data](#app-data)
+  - [Projects](#projects) · [Media](#media) · [Dev caches](#dev-caches) · [Models](#models) · [Large files](#large-files) · [Apps](#apps) · [App data](#app-data)
+  - [Browsers](#browsers)
 - [Cleaning up](#cleaning-up)
 - [Whole Disk](#whole-disk)
 - [Timeline](#timeline)
@@ -248,6 +249,39 @@ machine's disk image on the Mac may shrink only later.
 
 Nothing here is preselected.
 
+### Large files
+
+![Large files](images/en/large-files.png)
+
+Big files in your home folder that no other list explains, grouped by kind,
+largest first:
+
+| Group | Examples |
+| --- | --- |
+| Installers and disk images | `.dmg`, `.pkg`, `.iso`, `.xip`, `.ipsw`, sparse bundles (20 MB and up) |
+| Virtual machines | `.vmdk`, `.qcow2`, `.vdi`, Parallels, VMware and UTM bundles |
+| Videos, Audio | `.mp4`, `.mov`, `.mkv`…, `.wav`, `.flac`… |
+| Archives | `.zip`, `.tar.gz`, `.7z`, `.rar`… |
+| Model weights | `.safetensors`, `.gguf`, `.ckpt`, `.onnx`… A model split into shards (a folder with `model_index.json`, or `config.json` next to its weights) is listed as one folder. |
+| Apps outside Applications | an `.app` in Downloads or a build folder |
+| Other large files | anything else of 100 MB or more; their type isn't recognized, so check they aren't another program's data |
+
+Files are listed from 100 MB (installers from 20 MB), at most 50 per group;
+the group says how many more there are. Under each file: whether the app an
+installer is for is already installed, when it was last opened and where it
+was downloaded from (both from Spotlight), and when it last changed.
+
+Left out: your Library and dot folders (they belong to apps and tools),
+anything another list already shows (a project's `node_modules`, a frames
+folder), files git tracks, folded dependency folders, Photos and other media
+libraries, and the chunks of an encrypted Cryptomator vault.
+
+They are your files: nothing is preselected, and what you pick goes to the
+Trash, where you can put it back. Like your other files they wait out the
+7-day rule even when ticked. A file in iCloud Drive (Desktop and Documents
+synced with iCloud) carries a warning: moving it to the Trash removes it from
+all your devices.
+
 ### Apps
 
 ![Apps](images/en/apps.png)
@@ -319,6 +353,49 @@ directly can break the app, so SuckMyDisk only tells you where to clean them
 from inside the app, for example *WeChat → Settings → General → Storage*.
 To remove an app together with all its data, use [Apps](#apps) instead.
 
+### Browsers
+
+![Browsers](images/en/browsers.png)
+
+Under **Privacy** in the sidebar: what each browser remembers about where
+you've been. One group per browser profile, with its app icon. A browser that
+was removed but left its data behind is listed too, tagged as such.
+
+| Item | What happens | Badge |
+| --- | --- | --- |
+| **Browsing history** | Visits, typed addresses, search terms, top sites, address-bar shortcuts and typing predictions are erased from the browser's databases. Downloads stay unless picked too. | erased for good |
+| **Download history** | The downloads list is erased. The downloaded files stay. | erased for good |
+| **Cookies** | All cookies are erased: you are signed out of every website. | erased for good |
+| **Autofill form entries** | What you typed into web forms. Saved passwords, addresses and cards stay. | erased for good |
+| **Last session's tabs** | What the browser uses to reopen your last windows and recently closed tabs. | erased for good |
+| **Cache** | Images, scripts and offline caches, rebuilt as you browse. Logins and settings stay. | rebuildable |
+
+Each erase item shows how many records it holds instead of a size: erasing
+records frees next to nothing.
+
+Supported: Chrome (and Beta, Canary), Chromium, Edge, Brave, Arc, Dia,
+Vivaldi, Opera, Comet, Yandex, and Firefox, Zen, LibreWolf, Waterfox and
+Floorp. Firefox's history includes its downloads list, and bookmarked pages
+stay in it.
+
+**Safari** is guidance only, apart from its cache: Safari syncs history
+through iCloud, and only its own *History → Clear History…* removes it on your
+other devices as well. Cookies and website data: *Settings → Privacy → Manage
+Website Data… → Remove All*. Safari's history count needs Full Disk Access.
+
+**Never touched:** saved passwords, bookmarks, addresses and cards, search
+engines, extensions and their settings, and Local Storage and IndexedDB
+(extensions keep their settings there too).
+
+**Safety.** Nothing here is preselected, ever. While the browser is open its
+items are skipped: quit it first (some browsers keep running in the
+background after their last window closes). A database still held open is
+left as it was. Records are erased in one transaction, so a database is
+either fully erased or unchanged, and then compacted so they don't linger in
+free space. Only this Mac's copy is erased: with the browser's sync on,
+delete your account's copy online as well. Picked by hand, these items don't
+wait out the 7-day rule (a browser's data always changed this week).
+
 ## Cleaning up
 
 ![The Clean Up sheet](images/en/clean-up.png)
@@ -326,6 +403,7 @@ To remove an app together with all its data, use [Apps](#apps) instead.
 1. Click **Clean Up** on the overview (the preselected items) or **Clean Up…**
    in a list's bottom bar (your selection).
 2. The sheet shows the total and every item, grouped by what will happen:
+   - **Erase browser records**: gone for good; skipped while the browser is open.
    - **Uninstall apps**: each app and its data go to the Trash.
    - **Delete**: rebuildable; the restore steps are logged.
    - **Run the tool's own cleanup**: the tool knows what is still in use.
@@ -625,8 +703,10 @@ These apply to the app and the CLI alike, and no recognizer can override them.
   deleted). A skipped item names the program and its PID.
 - for an app's items, nothing runs from that app (its main program, helpers,
   or a copy macOS runs from elsewhere), and the app is still installed
-- it has not changed in the last 7 days, unless it is a rebuildable item or an
-  app's item you ticked yourself (the CLI's `--force` lifts this one for every item). A
+- for browser records, the browser is not running, and no program holds the
+  database: it must be possible to take an exclusive lock on it
+- it has not changed in the last 7 days, unless it is a rebuildable item, an
+  app's item or browser records you ticked yourself (the CLI's `--force` lifts this one for every item). A
   skipped item says when it can go: “changed Oct 31, 18:07; can be cleaned
   after Nov 7, 18:07”.
 - for uv's cache commands, no uv is running. A long-running `uv run` holds the
@@ -639,6 +719,9 @@ These apply to the app and the CLI alike, and no recognizer can override them.
   journal. Before a Python virtualenv is deleted, its `pyvenv.cfg` and a
   `pip freeze` are saved in the journal so it can be rebuilt faithfully.
 - Your own files are moved to the Trash.
+- Browser records are erased from the browser's own SQLite databases with
+  DELETE statements in one transaction, then the database is compacted. Only
+  ever when you tick them; never preselected.
 - Uninstalling moves the app and its data to the Trash. An app that belongs to
   the system (App Store, installers) is moved by Finder, which asks for your
   password.
@@ -687,6 +770,13 @@ preferences.
   names in `/Library/LaunchDaemons`, `/Library/LaunchAgents` and
   `/Library/PrivilegedHelperTools`, and Homebrew's install receipts in its
   `Caskroom`.
+- For [Large files](#large-files): Spotlight's last-used date and download
+  source of each listed file, whether it is in iCloud, and `git ls-files` for
+  the ones inside a repository.
+- For [Browsers](#browsers): each browser's profile list (`Local State`,
+  `profiles.ini`), and the **number of rows** in its history, cookie and form
+  tables (opened read-only, without locking). Nothing is read out of those
+  rows, and nothing about them is stored except the counts in the report.
 - Answers from tools it asks read-only questions: `uv cache dir`,
   `pnpm store path`, `xcrun simctl list devices`, `docker system df`,
   `tmutil listlocalsnapshots`, `git check-ignore` and `git ls-files`.

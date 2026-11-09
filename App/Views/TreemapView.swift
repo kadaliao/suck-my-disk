@@ -176,7 +176,8 @@ struct TreemapView: View {
 
     private func kindMap(_ tree: ScanTree) -> [NodeID: ThingKind] {
         var m: [NodeID: ThingKind] = [:]
-        for t in things {
+        // Browser profiles sit inside app data: coloring them would hide what holds them.
+        for t in things where t.kind != .browser {
             if let p = t.path, let n = tree.find(p) { m[n] = t.kind }
             for i in t.items { if let p = i.path, let n = tree.find(p) { m[n] = t.kind } }
         }

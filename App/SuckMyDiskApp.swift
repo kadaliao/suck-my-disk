@@ -96,7 +96,10 @@ struct RootView: View {
             List(selection: $model.page) {
                 ForEach([Section.overview], id: \.self) { s in sidebarRow(s) }
                 SwiftUI.Section(L("可以清理", "Reclaim")) {
-                    ForEach([Section.project, .media, .devCache, .model, .apps, .appData], id: \.self) { s in sidebarRow(s) }
+                    ForEach([Section.project, .media, .devCache, .model, .largeFiles, .apps, .appData], id: \.self) { s in sidebarRow(s) }
+                }
+                SwiftUI.Section(L("隐私", "Privacy")) {
+                    sidebarRow(.browsers)
                 }
                 SwiftUI.Section(L("透视", "Explore")) {
                     ForEach([Section.disk, .timeline], id: \.self) { s in sidebarRow(s) }
@@ -149,7 +152,13 @@ struct RootView: View {
                 Text(s.title)
                 Spacer()
                 // Apps: what they take up; uninstalling all of them is not "reclaimable".
-                if let k = s.kind, case let b = k == .app ? model.occupied(k) : model.reclaimable(k), b > 0 {
+                // Browsers: how many; what they hold is records more than space.
+                if s == .browsers, case let n = model.things(.browser).count, n > 0 {
+                    Text("\(n)")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                } else if let k = s.kind, case let b = k == .app ? model.occupied(k) : model.reclaimable(k), b > 0 {
                     Text(Fmt.bytes(b))
                         .font(.caption)
                         .monospacedDigit()

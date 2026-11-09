@@ -7,8 +7,10 @@ struct TimelineView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        // Apps overlap app data and the rest, so stacking them would count space twice.
-        let points = model.history.filter { $0.kind != "free" && $0.kind != ThingKind.system.rawValue && $0.kind != ThingKind.app.rawValue }
+        // Apps overlap app data and the rest, so stacking them would count space twice; so do large
+        // files (your files) and browsers (app data).
+        let stacked = Set([ThingKind.project, .media, .devCache, .model, .appData].map(\.rawValue))
+        let points = model.history.filter { stacked.contains($0.kind) }
         let free = model.history.filter { $0.kind == "free" }
         let days = Set(model.history.map(\.day)).count
         ScrollView {

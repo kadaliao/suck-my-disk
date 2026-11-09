@@ -7,7 +7,7 @@ import Reclaim
 import SwiftUI
 
 enum Section: String, CaseIterable, Identifiable, Hashable {
-    case overview, project, media, devCache, model, apps, appData, disk, timeline
+    case overview, project, media, devCache, model, largeFiles, apps, appData, browsers, disk, timeline
     var id: String { rawValue }
 
     var kind: ThingKind? {
@@ -18,6 +18,8 @@ enum Section: String, CaseIterable, Identifiable, Hashable {
         case .model: return .model
         case .apps: return .app
         case .appData: return .appData
+        case .largeFiles: return .largeFile
+        case .browsers: return .browser
         default: return nil
         }
     }
@@ -38,6 +40,8 @@ enum Section: String, CaseIterable, Identifiable, Hashable {
         case .media: return "film.stack"
         case .devCache: return "shippingbox"
         case .model: return "cpu"
+        case .largeFiles: return "scalemass"
+        case .browsers: return "hand.raised"
         case .apps: return "macwindow"
         case .appData: return "square.stack.3d.up"
         case .disk: return "square.grid.3x3.square"
@@ -63,6 +67,8 @@ extension ThingKind {
         case .app: return .indigo
         case .appData: return .teal
         case .system: return .gray
+        case .largeFile: return .brown
+        case .browser: return .cyan
         }
     }
 }
@@ -103,6 +109,8 @@ final class CleanRun {
     struct Row: Identifiable {
         let item: ReclaimItem
         let color: Color
+        /// The group it is in, shown for items without a path of their own ("Cookie" of which browser).
+        var group: String?
         var state: State = .waiting
         var id: String { item.id }
     }
@@ -120,8 +128,10 @@ final class CleanRun {
     var stopping = false
     private(set) var finishedAt: Date?
 
-    init(items: [ReclaimItem], kinds: [String: ThingKind], diskName: String?) {
-        rows = items.map { Row(item: $0, color: kinds[$0.id]?.color ?? .accentColor) }
+    init(items: [ReclaimItem], things: [Thing], diskName: String?) {
+        var kinds: [String: (ThingKind, String)] = [:]
+        for t in things { for i in t.items where kinds[i.id] == nil { kinds[i.id] = (t.kind, t.title) } }
+        rows = items.map { Row(item: $0, color: kinds[$0.id]?.0.color ?? .accentColor, group: kinds[$0.id]?.1) }
         self.diskName = diskName
         estimate = items.reduce(0) { $0 + $1.estimate }
     }
@@ -321,9 +331,11 @@ final class AppModel {
 
     /// Reclaimable but not selected: things waiting for the user's decision.
     /// Apps are left out: uninstalling every app is not a decision anyone is waiting to make.
+    /// Browsers too: what they hold is about privacy more than space.
     var undecided: UInt64 {
-        let all = things.filter { $0.kind != .app }.reduce(UInt64(0)) { $0 + $1.reclaimable }
-        let chosen = Planner.plan(things: things.filter { $0.kind != .app }, selected: selection).freed
+        let pending = things.filter { $0.kind != .app && $0.kind != .browser }
+        let all = pending.reduce(UInt64(0)) { $0 + $1.reclaimable }
+        let chosen = Planner.plan(things: pending, selected: selection).freed
         return all > chosen ? all - chosen : 0
     }
 
@@ -424,6 +436,10 @@ final class AppModel {
                     return i
                 }
                 if hadItems, t.items.isEmpty, t.kind != .system, t.kind != .appData { return nil }
+                // A list of files (large files) is as big as the files still in it.
+                if t.kind == .largeFile {
+                    t.bytes = t.items.reduce(0) { $0 + $1.bytes }
+                }
                 if let p = t.path, let old = baseline[t.id] {
                     guard let n = tree.find(p) else { return t.kind == .system || t.kind == .appData ? t : nil }
                     let now = tree.size(n)
@@ -607,9 +623,7 @@ final class AppModel {
         let disk = cleanDisk
         let items = cleanPlan.items
         guard !items.isEmpty else { return }
-        let kinds = Dictionary((disk?.things ?? things).flatMap { t in t.items.map { ($0.id, t.kind) } },
-                               uniquingKeysWith: { a, _ in a })
-        let run = CleanRun(items: items, kinds: kinds, diskName: disk?.volume.name)
+        let run = CleanRun(items: items, things: disk?.things ?? things, diskName: disk?.volume.name)
         withAnimation(.smooth(duration: 0.45)) { cleanRun = run }
         // Demo items point at made-up paths and real tools: never hand them to the executor.
         if demo != nil { return await cleanDemo(run, disk: disk) }

@@ -48,8 +48,17 @@ public enum Recognize {
         let system = SystemRecognizer.recognize(ctx, volume: volume)
         log(L("识别已安装的应用…", "Finding installed apps…"))
         let installed = AppRecognizer.recognize(ctx)
-        // Installed apps go last, so the numbers `smd things` gives everything else stay put.
+        // Installed apps, then the newer kinds, go last, so the numbers `smd things` gives everything else stay put.
         var all = projects + media + caches + models + apps + system + installed
+        let appList = AppRecognizer.installed(in: ["/Applications", ctx.home + "/Applications"])
+        log(L("查找其他大文件…", "Finding other large files…"))
+        // Only what nothing else lists: every item's own path and whatever its action removes.
+        let covered = all.flatMap { $0.items.flatMap { [$0.path].compactMap { $0 } + $0.action.paths } }
+        all += LargeFileRecognizer.recognize(ctx, covered: covered, apps: appList)
+        log(L("查看浏览器…", "Looking at browsers…"))
+        // An app's own caches item may already hold a browser's cache folder.
+        let appCaches = installed.flatMap(\.items).filter { $0.tier == .regenerable }.flatMap(\.action.paths)
+        all += BrowserRecognizer.recognize(ctx, apps: appList, covered: appCaches)
         log(L("精确计算含共享数据的大项…", "Measuring items that share data…"))
         refineShared(&all, offLimits: ctx.offLimits)
         return Report(createdAt: Date(), volumeTotal: volume.total, volumeFree: volume.free,
@@ -120,7 +129,8 @@ public enum Planner {
     /// `selected == nil` means "the preselected items".
     public static func plan(things: [Thing], selected: Set<String>?) -> Plan {
         let all = things.flatMap(\.items).filter { $0.tier < .guide }
-        var chosen = all.filter { item in selected.map { $0.contains(item.id) } ?? item.preselected }
+        // Erasing records is never anyone's default, whatever an item says.
+        var chosen = all.filter { item in selected.map { $0.contains(item.id) } ?? (item.preselected && item.tier != .erase) }
         let covered = Set(chosen.flatMap(\.covers))
         chosen.removeAll { covered.contains($0.id) }
         return Plan(items: chosen, freed: chosen.reduce(0) { $0 + $1.estimate })

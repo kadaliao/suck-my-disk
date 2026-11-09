@@ -57,8 +57,10 @@ SuckMyDisk 告诉你那*是什么*、能不能重新生成、删了实际能腾�
 | 作品 | 渲染出来的帧文件夹（`00001.png`…） | 找到对应的成片才直接删除；找不到就移到废纸篓。 |
 | 开发缓存 | uv、npm、pnpm、bun、Yarn、pip、Homebrew、Cargo、Xcode DerivedData、iOS 模拟器、Docker 构建缓存 | 工具有自带的清理命令就用它（`uv cache prune`、`brew cleanup`…），没有才直接删。 |
 | 模型 | Ollama、Hugging Face、ModelScope、LM Studio | `ollama rm`、`hf cache rm` 或移到废纸篓。默认一个都不勾。 |
+| 大文件 | 别的分类都没列出的安装包、磁盘映像和虚拟机、视频、压缩包、模型权重、「应用程序」以外的应用 | 移到废纸篓。默认不勾；git 跟踪的文件不列出。 |
 | 应用 | 「应用程序」里的每个应用，连同它在 `~/Library` 里的文件夹（Application Support、Caches、Containers、Preferences…） | **卸载**：应用和数据一起移到废纸篓。**缓存**：删掉缓存、日志和窗口状态，应用和你的数据都留着。默认不勾；应用在运行时跳过。 |
 | 应用数据 | 微信、Chrome、飞书、Notion、iPhone 备份… | 从不删除，只告诉你在应用里怎么清。 |
+| 浏览器（隐私） | Chrome、Edge、Brave、Arc、Firefox 等 Chromium 和 Firefox 系浏览器的浏览记录、下载记录、Cookie、表单内容、上次的标签页和缓存；Safari 的缓存 | 从浏览器自己的数据库里清除记录，缓存直接删。永不预选；浏览器开着时跳过。Safari 的浏览记录只给指引。 |
 
 | | |
 | --- | --- |
@@ -138,6 +140,8 @@ smd uninstall Zoom    # 预演；--keep-app 只清缓存，加 --yes 真正执�
 - 有自带清理命令的工具（uv、npm、pnpm、bun、Yarn、Homebrew、`simctl`、Docker），
   就运行它的命令，而不是删它的文件夹，因为工具自己知道哪些还在用。
   从不运行 `docker system prune`。
+- 浏览记录和 Cookie 只在你亲手勾上、浏览器关着时才清，每个数据库在一个事务里完成。
+  密码、书签、银行卡和扩展一律不碰。
 - 每个操作都记进日志，包括实际腾出了多少空间、怎么恢复（`smd journal`、`smd wake`）。
 
 ## 文档

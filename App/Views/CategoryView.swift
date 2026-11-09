@@ -13,21 +13,21 @@ struct CategoryView: View {
     var body: some View {
         let things = model.things(kind).filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || ($0.path ?? "").localizedCaseInsensitiveContains(query) }
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                header.padding(.bottom, 8)
-                ForEach(things) { t in
-                    ThingRow(thing: t, expanded: expanded.contains(t.id)) {
-                        withAnimation(.snappy) {
-                            if expanded.contains(t.id) { expanded.remove(t.id) } else { expanded.insert(t.id) }
-                        }
-                    }
-                    Divider().opacity(0.5)
-                }
+            // A few groups with long lists inside (large files, browsers): a plain stack. A lazy
+            // one livelocked once with rows taller than the window (see ExternalDiskView).
+            if kind == .largeFile || kind == .browser {
+                VStack(alignment: .leading, spacing: 0) { rows(things) }
+                    .padding(.horizontal, 28)
+                    .padding(.top, 20)
+                    .padding(.bottom, 90)
+                    .frame(maxWidth: 1100, alignment: .leading)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 0) { rows(things) }
+                    .padding(.horizontal, 28)
+                    .padding(.top, 20)
+                    .padding(.bottom, 90)
+                    .frame(maxWidth: 1100, alignment: .leading)
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 20)
-            .padding(.bottom, 90)
-            .frame(maxWidth: 1100, alignment: .leading)
         }
         .searchable(text: $query, placement: .toolbar, prompt: L("搜索", "Search"))
         .safeAreaInset(edge: .bottom) {
@@ -36,7 +36,20 @@ struct CategoryView: View {
         .navigationTitle(kind.title)
         .onAppear {
             // Open the first few groups so the list never looks empty.
-            if expanded.isEmpty { expanded = Set(model.things(kind).prefix(kind == .project ? 3 : 2).map(\.id)) }
+            if expanded.isEmpty { expanded = Set(model.things(kind).prefix(kind == .project ? 3 : kind == .largeFile ? 1 : 2).map(\.id)) }
+        }
+    }
+
+    @ViewBuilder
+    private func rows(_ things: [Thing]) -> some View {
+        header.padding(.bottom, 8)
+        ForEach(things) { t in
+            ThingRow(thing: t, expanded: expanded.contains(t.id)) {
+                withAnimation(.snappy) {
+                    if expanded.contains(t.id) { expanded.remove(t.id) } else { expanded.insert(t.id) }
+                }
+            }
+            Divider().opacity(0.5)
         }
     }
 
@@ -45,7 +58,10 @@ struct CategoryView: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 BigNumber(bytes: kind == .appData || kind == .app ? model.occupied(kind) : model.reclaimable(kind), size: 40)
                 Text(kind == .appData ? L("被应用数据占用", "used by app data")
-                     : kind == .app ? L("被应用和它们的数据占用", "used by apps and their data") : L("可以腾出", "reclaimable"))
+                     : kind == .app ? L("被应用和它们的数据占用", "used by apps and their data")
+                     : kind == .browser ? L("缓存可以腾出", "of cache can go")
+                     : kind == .largeFile ? L("移到废纸篓、清倒后可以腾出", "freed once moved to the Trash and emptied")
+                     : L("可以腾出", "reclaimable"))
                     .foregroundStyle(.secondary)
             }
             Text(blurb).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -65,6 +81,10 @@ struct CategoryView: View {
         case .app: return L("装在「应用程序」里的应用，连同它们放在资源库里的数据。可以整个卸载（应用和数据一起进废纸篓，能放回），也可以保留应用、只删它会自己重建的缓存。正在运行的应用不会动，默认都不勾。",
                             "Apps in Applications, with the data they keep in your Library. Uninstall one (the app and its data go to the Trash, where you can put them back), or keep it and delete only the caches it rebuilds. Running apps are left alone; nothing is preselected.")
         case .appData: return L("这些数据属于各个应用，直接删会出问题。这里告诉你在应用里怎么清。", "This data belongs to apps and must be cleaned from inside them. Here's how.")
+        case .largeFile: return L("个人文件夹里别处没列出的大文件：安装包、视频、磁盘映像、压缩包、模型权重…（资源库和以点开头的文件夹属于应用和工具，不在这里）。它们是你的文件：都不勾，选中的移到废纸篓，可以放回；git 跟踪的不列出。",
+                                  "Big files in your home folder that nothing else lists: installers, videos, disk images, archives, model weights… (your Library and dot folders belong to apps and tools, so they're left out). They're your files: nothing is ticked, and what you pick goes to the Trash, where you can put it back. Files git tracks aren't listed.")
+        case .browser: return L("浏览器记下的浏览记录、下载记录、Cookie、表单内容和上次的标签页。清掉的记录找不回来，所以都不勾；浏览器开着时不动它，先退出再清。保存的密码、书签、地址、银行卡和扩展一律不碰。",
+                                "What browsers remember: history, downloads, cookies, form entries and your last tabs. Erased records can't be brought back, so nothing is ticked, and a browser that's open is left alone: quit it first. Saved passwords, bookmarks, addresses, cards and extensions are never touched.")
         case .system: return ""
         }
     }
@@ -86,10 +106,17 @@ struct ThingRow: View {
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                     groupCheck
                     if thing.kind == .app { AppIcon(path: thing.path) }
+                    if thing.kind == .browser { BrowserIcon(thing: thing) }
+                    if thing.kind == .largeFile {
+                        Image(systemName: LargeFileIcon.symbol(thing.id))
+                            .font(.title3)
+                            .foregroundStyle(thing.kind.color)
+                            .frame(width: 26)
+                    }
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 8) {
                             Text(thing.title).font(.body.weight(.medium)).lineLimit(1)
-                            if let d = thing.detail, thing.kind == .project || thing.kind == .app {
+                            if let d = thing.detail, thing.kind == .project || thing.kind == .app || thing.kind == .browser {
                                 Text(d)
                                     .font(.caption2.weight(.medium))
                                     .padding(.horizontal, 6).padding(.vertical, 2)
@@ -103,7 +130,7 @@ struct ThingRow: View {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(Fmt.bytes(thing.kind == .appData ? thing.bytes : thing.reclaimable))
                             .font(.body.weight(.medium)).monospacedDigit()
-                        if thing.kind != .appData, thing.bytes != thing.reclaimable {
+                        if thing.kind != .appData, thing.kind != .largeFile, thing.bytes != thing.reclaimable {
                             Text(L("占用 \(Fmt.bytes(thing.bytes))", "uses \(Fmt.bytes(thing.bytes))"))
                                 .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                         }
@@ -142,6 +169,8 @@ struct ThingRow: View {
                          : L("活跃于 \(Fmt.ago(d))", "active \(Fmt.ago(d))") + (thing.activitySource.map { " · \($0)" } ?? ""))
         }
         if let p = thing.path { parts.append(Fmt.home(p)) }
+        // A list of files has no one place: say how many instead.
+        if thing.kind == .largeFile, let d = thing.detail { parts.append(d) }
         return parts.joined(separator: "  ·  ")
     }
 
@@ -199,7 +228,7 @@ struct ItemRow: View {
                 }
             }
             Spacer()
-            Text(Fmt.bytes(item.estimate) + (item.estimateIsLowerBound ? "+" : ""))
+            Text(ItemRow.amount(item))
                 .monospacedDigit().foregroundStyle(.secondary)
         }
         .padding(.leading, 56)
@@ -215,6 +244,13 @@ struct ItemRow: View {
 
     private var itemParentPath: String? { nil }
 
+    /// Records for what is erased (sizes there are next to nothing), otherwise the size it frees.
+    static func amount(_ item: ReclaimItem) -> String {
+        if let n = item.records { return L("\(Fmt.count(n)) 条", n == 1 ? "1 record" : "\(Fmt.count(n)) records") }
+        if item.tier == .guide || (item.tier == .erase && item.estimate == 0) { return "" }
+        return Fmt.bytes(item.estimate) + (item.estimateIsLowerBound ? "+" : "")
+    }
+
     @ViewBuilder
     private var tierBadge: some View {
         let (text, color): (String, Color) = {
@@ -222,6 +258,7 @@ struct ItemRow: View {
             case .lossless: return (L("无损", "lossless"), .green)
             case .regenerable: return (L("可再生", "rebuildable"), .blue)
             case .yours: return (L("进废纸篓", "to Trash"), .orange)
+            case .erase: return (L("永久清除", "erased for good"), .red)
             case .guide: return (L("指引", "guide"), .teal)
             }
         }()
@@ -230,6 +267,37 @@ struct ItemRow: View {
             .padding(.horizontal, 5).padding(.vertical, 1)
             .background(color.opacity(0.13), in: Capsule())
             .foregroundStyle(color)
+    }
+}
+
+/// A browser's app icon; a globe for one that is gone (or in demo mode, a tile).
+struct BrowserIcon: View {
+    @Environment(AppModel.self) private var model
+    var thing: Thing
+
+    var body: some View {
+        let app = thing.items.lazy.compactMap(\.app).first
+        if app != nil || model.demo != nil {
+            AppIcon(path: app ?? "/Applications/\(thing.title.split(separator: "·").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? thing.title).app")
+        } else {
+            Image(systemName: "globe").font(.title3).foregroundStyle(.secondary).frame(width: 26)
+        }
+    }
+}
+
+enum LargeFileIcon {
+    /// "large:video" → film.
+    static func symbol(_ id: String) -> String {
+        switch id.dropFirst("large:".count) {
+        case "installer": return "opticaldiscdrive"
+        case "vm": return "desktopcomputer"
+        case "video": return "film"
+        case "audio": return "waveform"
+        case "archive": return "doc.zipper"
+        case "model": return "cpu"
+        case "app": return "app.dashed"
+        default: return "doc"
+        }
     }
 }
 

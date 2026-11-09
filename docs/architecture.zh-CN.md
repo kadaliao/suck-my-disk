@@ -110,16 +110,18 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 3. `FrameSequenceRecognizer` 找出图片很多的目录，读几张图片的头信息，再在附近找一个帧数相同的视频（视频轨的时长 × 帧率，相差不超过 3 帧或 0.5%）。从帧往上找时，跳过别的项目（有 git 仓库或清单文件的文件夹）和装着别组帧的文件夹；帧数一样时选最新的视频。
 4. 其余交给 `DevCacheRecognizer`、`ModelRecognizer`、`AppDataRecognizer` 和 `SystemRecognizer`。
 5. `AppRecognizer` 根据 `Info.plist` 列出 `/Applications` 和 `~/Applications`（以及下一层）里的应用，再到 `~/Library` 里认它们的文件夹：按 bundle id、按在它后面接着的名字（`….ShipIt`、扩展的 id；归装着的应用里 id 最长的那个），在 Application Support、Caches 和 Logs 里还按和应用完全相同的名字（太通用或两个应用同名的除外）。文件夹来自树，所以受隐私保护的目录永远不会被读；小文件（偏好设置、Cookie、启动代理）来自目录列表。每个应用是一个 `.app` 类的 `Thing`，带一个「卸载」项（`yours`，由一串 `.trash` 组成的 `compound`，应用本身排第一）；缓存合计到 1 MB 时再带一个「缓存」项（`regenerable`，`.deleteAll`）。两项都带着 `app`。应用排在报告最后，这样 `smd things` 给其他东西的编号不会变。
-6. `refineShared` 对估计值只是下限的大项做精确计算。
+6. `LargeFileRecognizer` 列出个人文件夹（资源库和以点开头的文件夹除外）和 `/Users/Shared` 里、上面各项都没覆盖到的大文件：每一项的路径和它的动作要删的路径都作为 `covered` 传进来。它遍历树，整棵子树比它列出的最小尺寸还小就跳过；按扩展名分组（bundle：`.app`、`.sparsebundle`、虚拟机包）；拆成几片的模型合并成它所在的文件夹（有 `model_index.json`，或权重旁边有 `config.json`）；去掉 git 跟踪的文件（每个仓库一次 `git ls-files`）；再向 Spotlight 问每个列出的文件上次打开的时间和下载来源。条目都是 `yours` / `.trash`，从不预选。
+7. `BrowserRecognizer` 找 Chromium 的用户资料（来自 `Local State`）、Firefox 系的用户资料（来自 `profiles.ini`）和 Safari。它通过 `ForeignDB` 数它们数据库里的行数，以 `immutable=1` 只读打开（Chrome 运行时一直锁着这些数据库），为浏览记录、下载记录、Cookie、表单内容和会话生成 `erase` 条目，再加一个 `regenerable` 的缓存条目，去掉应用自己的缓存条目已经包含的文件夹。Safari 的浏览记录和 Cookie 是 `guide` 条目。
+8. `refineShared` 对估计值只是下限的大项做精确计算。
 
 数据模型在 `Thing.swift` 里：
 
 - **`Thing`** 是用户认得出的一样东西：一个项目、一份缓存、一个模型仓库。它有类别、大小、上次活跃时间和一组清理项。
 - **`ReclaimItem`** 是一个动作：能腾出多少（`estimate`，可能小于它占用的 `bytes`）、`Tier`、`ReclaimAction`、恢复命令、理由、警告，以及是否预选。`covers` 列出它已经包含的项（`uv cache clean` 包含 `uv cache prune`），避免重复计算或重复执行。`app` 是这一项所属的已安装应用的路径。
-- **`Tier`**：`lossless`（什么都不丢，留给克隆合并用）、`regenerable`（直接删，可以重建）、`yours`（进废纸篓）、`guide`（只给指引）。
-- **`ReclaimAction`**：`delete`、`deleteAll`、`trash`、`command`（工具自带的清理命令）、`compound`、`none`。
+- **`Tier`**：`lossless`（什么都不丢，留给克隆合并用）、`regenerable`（直接删，可以重建）、`yours`（进废纸篓）、`erase`（永久清除的记录：浏览记录、Cookie）、`guide`（只给指引）。报告里按原始值存；`erase`（4）排在 `yours` 和 `guide` 之间。
+- **`ReclaimAction`**：`delete`、`deleteAll`、`trash`、`command`（工具自带的清理命令）、`erase`（在别的程序的 SQLite 数据库上执行语句）、`compound`、`none`。条目上的 `records` 表示要清除多少条记录，App 显示它而不是大小。
 
-`Planner.plan` 把用户的勾选（或预选）变成要执行的清单，并去掉已被别的项包含的项。
+`Planner.plan` 把用户的勾选（或预选）变成要执行的清单，并去掉已被别的项包含的项。预选永远不包括 `erase` 条目。
 
 每个识别器都必须遵守 [CONTRIBUTING.zh-CN.md](../CONTRIBUTING.zh-CN.md#删除相关代码的安全规则) 里的规则。
 
@@ -128,6 +130,8 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 `Executor` 一项一项地执行。每一项动手之前，对它要碰的每个路径都检查一遍：`Guards.isDenied`、路径还在且不是符号链接、git 没有跟踪里面的任何文件（拿不准就当作有）、没有正在运行的程序的命令行提到它（用 `ps` 查，同样拿不准就不删），以及 7 天规则。`force` 对所有条目解除这条规则；`chosen` 是用户亲手勾的条目，其中可再生的不受它限制，所以扫描之后又改过的预选条目照样不动。跑 uv 的命令前还会确认没有 uv 在运行，因为 uv 会等缓存的锁；同时设上 `UV_LOCK_TIMEOUT`，防止这期间正好又起了一个。受系统完整性保护（`SF_RESTRICTED`）的东西一律不碰。
 
 带 `app` 的条目还要多查几样：应用还装着，而且没有任何东西从它里面运行（`Guards.program(inApp:in:)`，按 `/<Name>.app/Contents/` 也能认出被 macOS 挪到别处运行的副本）。用户亲手勾的，不受 7 天规则限制：打开应用就会改动它的文件夹，对应用来说要紧的是「没在运行」。识别之后消失的文件夹会从动作里去掉，而不是让整项失败（`Executor.existing`）。
+
+`.erase` 动作要求数据库仍是普通文件、没有正在运行的程序在命令行里提到它；然后 `ForeignDB.erase` 以读写方式打开，不等待地执行 `BEGIN EXCLUSIVE`（浏览器还占着就让这一项失败，什么都不改），打开 `secure_delete`，执行各条语句（这个版本的浏览器没有的表，对应语句跳过；其他错误整体回滚），提交后再 `VACUUM`。清除的行数写进日志。
 
 然后才动手：删除用 `removefile`，进废纸篓用 `FileManager.trashItem`，工具命令通过 `Shell` 运行。`trashItem` 移不动的 `.app`（归 root 所有，App Store 和安装器装的都是这样）交给访达，通过 `osascript` 来移，访达会像拖进废纸篓时一样要管理员密码。删 Python 虚拟环境之前，会先记下 `pyvenv.cfg` 和一份 `pip freeze`。执行前后各量一次可用空间，所有结果都写进日志。
 
@@ -179,5 +183,7 @@ App 和命令行里所有给用户看的文字，都通过 `Fmt.swift` 里的 `L
 - `AccountingTests`：同时释放 uv 缓存和 `.venv`。
 - `RecognizerTests`：项目产物和恢复命令、活跃项目不预选、外接磁盘上的项目（不含盘上的点文件夹）、帧只和自己的视频配对、npx 的包、渲染帧序列和相机连拍的区分。
 - `AppTests`：列出哪些应用、哪个文件夹归哪个应用（后缀、带团队 ID 的群组容器、厂商文件夹和通用名字不算）、Homebrew 和系统组件的警告、正在运行的应用不动（被挪到别处运行的副本也算）、亲手勾的应用条目和 7 天规则、应用已经不在时如实报告、公共文件夹受保护。
+- `LargeFileTests`：只列别处没列出的（点文件夹、折叠的依赖、git 跟踪的文件、别的条目和保险库分块都不算）、拆成几片的模型按一个文件夹算、安装包认出对应的应用。
+- `BrowserTests`：Chromium 用户资料逐项清除（下载记录、同步记录、银行卡和搜索引擎保留）、被占着的数据库不动、正在运行的浏览器不动、Firefox 清浏览记录保留书签、报告里的 erase 等级。
 - `SafetyTests`：受保护位置、被包含的项、执行器拒绝受保护路径和 git 跟踪的路径、正在运行的程序在用的文件、7 天规则和什么情况下不受它限制、uv 不再干等别的 uv 进程、Node 脚本在 App 的精简 PATH 下也能找到 `node`。
 - `LiveIndexTests`：打过补丁的树和重新扫描的结果一致、保存后的树能继续增长、大目录排队等待、会弹授权的目录从不被打开、FSEvents 驱动更新。

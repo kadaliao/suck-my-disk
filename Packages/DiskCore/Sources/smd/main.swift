@@ -128,7 +128,14 @@ func loadTree(maxAge: TimeInterval = 3600, rescan: Bool = false) -> ScanTree? {
 
 // MARK: printing
 
-let tierMark: [Tier: String] = [.lossless: "◆", .regenerable: "●", .yours: "○", .guide: "·"]
+let tierMark: [Tier: String] = [.lossless: "◆", .regenerable: "●", .yours: "○", .erase: "✕", .guide: "·"]
+
+/// What an item clears: records for erased ones ("17,685 records"), otherwise its size.
+func amount(_ i: ReclaimItem) -> String {
+    if let n = i.records { return L("\(Fmt.count(n)) 条", n == 1 ? "1 record" : "\(Fmt.count(n)) records") }
+    if i.tier == .guide, i.bytes == 0 { return "" }
+    return Fmt.bytes(i.estimate) + (i.estimateIsLowerBound ? "+" : "")
+}
 
 struct Numbered {
     var number: Int
@@ -174,8 +181,8 @@ func printReport(_ report: Report, verbose: Bool, disk: ExternalVolume? = nil) {
             for i in items {
                 let num = numberOf[i.id + "|" + t.id].map { String(format: "%3d", $0) } ?? "   "
                 let box = i.tier == .guide ? "   " : (i.preselected ? "[x]" : "[ ]")
-                var line = "    \(num) \(box) \(tierMark[i.tier]!) \(i.label)  \(Fmt.bytes(i.estimate))\(i.estimateIsLowerBound ? "+" : "")"
-                if i.estimate != i.bytes, i.tier != .guide { line += L("（占用 \(Fmt.bytes(i.bytes))）", " (occupies \(Fmt.bytes(i.bytes)))") }
+                var line = "    \(num) \(box) \(tierMark[i.tier]!) \(i.label)  \(amount(i))"
+                if i.estimate != i.bytes, i.tier != .guide, i.records == nil { line += L("（占用 \(Fmt.bytes(i.bytes))）", " (occupies \(Fmt.bytes(i.bytes)))") }
                 if let p = i.path, i.label != t.title, !(t.path.map { p == $0 } ?? false) { line += "  " + Fmt.home(p) }
                 print(line)
                 if verbose || i.tier != .guide { print("          " + i.reason + (i.restore.map { L("  · 恢复：", "  · restore: ") + $0 } ?? "")) }
@@ -186,8 +193,8 @@ func printReport(_ report: Report, verbose: Bool, disk: ExternalVolume? = nil) {
         if things.count > shown.count { print(L("  … 还有 \(things.count - shown.count) 个（-v 查看全部）", "  … \(things.count - shown.count) more (-v)")) }
         print("")
     }
-    print(L("● 可再生，直接删除并记录恢复方法   ○ 你的文件，移到废纸篓   [x] 预选",
-            "● regenerable, deleted with a restore note   ○ yours, moved to the Trash   [x] preselected"))
+    print(L("● 可再生，直接删除并记录恢复方法   ○ 你的文件，移到废纸篓   ✕ 永久清除的记录   [x] 预选",
+            "● regenerable, deleted with a restore note   ○ yours, moved to the Trash   ✕ records erased for good   [x] preselected"))
     let reclaim = "smd reclaim" + (disk.map { " " + shellQuote($0.path) } ?? "")
     print(L("下一步：\(reclaim)（先预演）· \(reclaim) --add 12 --remove 3 · 确认后加 --yes",
             "Next: \(reclaim) (dry run) · \(reclaim) --add 12 --remove 3 · add --yes to run"))
@@ -261,10 +268,12 @@ func runPlan(_ items: [ReclaimItem], execute: Bool, disk: ExternalVolume? = nil,
         case .command(let argv, _): how = "$ " + argv.joined(separator: " ")
         case .compound where i.action.isTrashOnly:
             how = L("移到废纸篓（\(Executor.paths(i.action).count) 处）", "trash (\(Executor.paths(i.action).count) places)")
+        case .erase: how = L("永久清除", "erase")
+        case .compound where i.tier == .erase: how = L("永久清除", "erase")
         case .compound: how = L("组合", "combined")
         case .none: how = "-"
         }
-        print("  \(tierMark[i.tier]!) \(i.label)  \(Fmt.bytes(i.estimate))  [\(how)]" + (i.path.map { "  " + Fmt.home($0) } ?? ""))
+        print("  \(tierMark[i.tier]!) \(i.label)  \(amount(i))  [\(how)]" + (i.path.map { "  " + Fmt.home($0) } ?? ""))
     }
     guard execute else {
         print("")

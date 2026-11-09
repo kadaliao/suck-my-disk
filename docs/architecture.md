@@ -207,7 +207,24 @@ them.
    1 MB, a Caches item (`regenerable`, `.deleteAll`), both carrying `app`.
    Apps go last in the report so `smd things` numbers for everything else
    stay put.
-6. `refineShared` measures large items whose estimate is only a lower bound.
+6. `LargeFileRecognizer` lists big files in the home folder (not its Library
+   or dot folders) and `/Users/Shared` that no item above already covers:
+   every item's path and the paths its action removes are passed in as
+   `covered`. It walks the tree, skipping any subtree smaller than the
+   smallest size it lists, groups hits by extension (bundles: `.app`,
+   `.sparsebundle`, VM bundles), rolls a sharded model up to its folder
+   (`model_index.json`, or `config.json` next to the shards), drops what git
+   tracks (one `git ls-files` per repository), and asks Spotlight for each
+   listed file's last-used date and download source. Items are `yours` /
+   `.trash`, never preselected.
+7. `BrowserRecognizer` finds Chromium profiles (from `Local State`), Firefox
+   family profiles (from `profiles.ini`) and Safari. It counts rows in their
+   databases through `ForeignDB`, opened read-only with `immutable=1` (Chrome
+   keeps them locked while it runs), and makes `erase` items for history,
+   downloads, cookies, form entries and sessions, and a `regenerable` cache
+   item that leaves out folders an app's own caches item already holds.
+   Safari's history and cookies are `guide` items.
+8. `refineShared` measures large items whose estimate is only a lower bound.
 
 The model, in `Thing.swift`:
 
@@ -220,13 +237,17 @@ The model, in `Thing.swift`:
   they are not counted or run twice. `app` is the bundle path of the
   installed app an item belongs to.
 - **`Tier`**: `lossless` (nothing is lost; reserved for clone merging),
-  `regenerable` (deleted, can be rebuilt), `yours` (to the Trash), `guide`
-  (instructions only).
+  `regenerable` (deleted, can be rebuilt), `yours` (to the Trash), `erase`
+  (records erased for good: browser history, cookies), `guide` (instructions
+  only). Tiers are stored by raw value; `erase` (4) sorts between `yours` and
+  `guide`.
 - **`ReclaimAction`**: `delete`, `deleteAll`, `trash`, `command` (a tool's own
-  cleanup), `compound`, `none`.
+  cleanup), `erase` (statements on another program's SQLite database),
+  `compound`, `none`. `records` on an item says how many records it erases;
+  the app shows it instead of a size.
 
 `Planner.plan` turns a selection (or the preselection) into the list of items
-to run, dropping covered ones.
+to run, dropping covered ones. The preselection never includes `erase` items.
 
 Every recognizer must follow the rules in
 [CONTRIBUTING.md](../CONTRIBUTING.md#safety-rules-for-code-that-deletes).
@@ -250,6 +271,14 @@ by its `/<Name>.app/Contents/` path). Picked by hand, they skip the 7-day rule,
 because opening an app changes its folders and "not running" is the check that
 matters. Folders that vanished since recognition are dropped from the action
 rather than failing it (`Executor.existing`).
+
+For `.erase`, the database must still be a regular file that no running
+program names; `ForeignDB.erase` then opens it read-write, takes `BEGIN
+EXCLUSIVE` without waiting (a browser that still holds it makes the item fail
+with nothing changed), turns on `secure_delete`, runs the statements (one on a
+table this version of the browser doesn't have is skipped; any other error
+rolls everything back), commits and runs `VACUUM`. The number of rows erased
+goes into the journal.
 
 Then it acts: `removefile` for deletes,
 `FileManager.trashItem` for the Trash, or the tool's command through `Shell`.
@@ -375,6 +404,13 @@ fixtures built in temporary folders:
   out), Homebrew and system-component warnings, running apps left alone
   (translocated copies too), hand-picked app items and the 7-day rule, a
   removed app reported, shared folders protected.
+- `LargeFileTests`: only what nothing else lists (dot folders, folded
+  dependencies, git-tracked files, other items and vault chunks left out), a
+  sharded model as one folder, installers naming their app.
+- `BrowserTests`: Chromium profiles erased item by item (downloads, sync
+  bookkeeping, cards and search engines kept), a locked database left alone,
+  a running browser left alone, Firefox history keeping bookmarks, the erase
+  tier in saved reports.
 - `SafetyTests`: denied locations, covered items, executor refusing protected
   and git-tracked paths, files a running program uses, the 7-day rule and
   what lifts it, uv waiting for no one, Node scripts finding `node` from an

@@ -26,6 +26,21 @@ public enum Fmt {
         return "\(v) B"
     }
 
+    /// "17,685" / "1.8 万".
+    public static func count(_ n: Int) -> String {
+        if isChinese, n >= 10_000 {
+            let s = String(format: "%.1f", Double(n) / 1e4)
+            return (s.hasSuffix(".0") ? String(s.dropLast(2)) : s) + " 万"
+        }
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.usesGroupingSeparator = true
+        f.groupingSeparator = ","
+        f.groupingSize = 3
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
     public static func ago(_ date: Date?, now: Date = Date()) -> String {
         guard let date else { return L("未知", "unknown") }
         let days = Int(now.timeIntervalSince(date) / 86400)

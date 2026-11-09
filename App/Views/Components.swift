@@ -227,9 +227,14 @@ struct CleanSheet: View {
 
     var body: some View {
         let plan = model.cleanPlan
+        let groupOf = Dictionary((model.cleanDisk?.things ?? model.things).flatMap { t in t.items.map { ($0.id, t.title) } },
+                                 uniquingKeysWith: { a, _ in a })
         let uninstall = plan.items.filter { $0.app != nil && $0.action.isTrashOnly }
-        let rest = plan.items.filter { !($0.app != nil && $0.action.isTrashOnly) }
+        let erase = plan.items.filter { $0.tier == .erase }
+        let rest = plan.items.filter { !($0.app != nil && $0.action.isTrashOnly) && $0.tier != .erase }
         let groups: [(String, String, [ReclaimItem])] = [
+            (L("永久清除浏览器记录", "Erase browser records"), L("清掉就找不回来；浏览器开着的会跳过", "gone for good; skipped while the browser is open"),
+             erase),
             (L("卸载应用", "Uninstall apps"), L("应用和它的数据移到废纸篓，可以放回", "each app and its data go to the Trash; you can put them back"),
              uninstall),
             (L("直接删除", "Delete"), L("能重新生成，恢复方法记在日志里", "rebuildable; restore steps are logged"),
@@ -256,11 +261,11 @@ struct CleanSheet: View {
                             ForEach(g.2) { i in
                                 HStack {
                                     Text(i.label).lineLimit(1)
-                                    if let p = i.path {
-                                        Text(Fmt.home(p)).font(.caption).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
+                                    if let w = i.path.map(Fmt.home) ?? groupOf[i.id] {
+                                        Text(w).font(.caption).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
                                     }
                                     Spacer()
-                                    Text(Fmt.bytes(i.estimate)).monospacedDigit().foregroundStyle(.secondary)
+                                    Text(ItemRow.amount(i)).monospacedDigit().foregroundStyle(.secondary)
                                 }
                                 .font(.callout)
                             }

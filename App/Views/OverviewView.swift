@@ -16,7 +16,7 @@ struct OverviewView: View {
                 }
                 reclaimHero
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 14)], spacing: 14) {
-                    ForEach([ThingKind.project, .media, .devCache, .model, .app, .appData], id: \.self) { k in
+                    ForEach([ThingKind.project, .media, .devCache, .model, .largeFile, .app, .appData, .browser], id: \.self) { k in
                         KindCard(kind: k)
                     }
                 }
@@ -61,8 +61,8 @@ struct OverviewView: View {
                     Button {
                         model.section = .devCache
                     } label: {
-                        Label(L("另有 \(Fmt.bytes(model.undecided)) 等你决定：模拟器、uv 缓存、还在用的项目…",
-                                "\(Fmt.bytes(model.undecided)) more awaits your call: simulators, uv cache, active projects…"),
+                        Label(L("另有 \(Fmt.bytes(model.undecided)) 等你决定：模拟器、uv 缓存、大文件、还在用的项目…",
+                                "\(Fmt.bytes(model.undecided)) more awaits your call: simulators, uv cache, large files, active projects…"),
                               systemImage: "hand.raised")
                             .font(.callout)
                     }
@@ -124,7 +124,7 @@ struct KindCard: View {
                     Spacer()
                     Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                 }
-                Text(kind == .appData || kind == .app ? Fmt.bytes(model.occupied(kind)) : Fmt.bytes(reclaim))
+                Text(headline(reclaim))
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                 Text(subtitle(things: things, selected: selected))
@@ -140,6 +140,17 @@ struct KindCard: View {
         .buttonStyle(.plain)
     }
 
+    private func headline(_ reclaim: UInt64) -> String {
+        switch kind {
+        case .appData, .app: return Fmt.bytes(model.occupied(kind))
+        // Browsers: what they remember about you, not how much space it takes.
+        case .browser:
+            let n = model.things(kind).flatMap(\.items).filter { $0.tier == .erase }.compactMap(\.records).reduce(0, +)
+            return L("\(Fmt.count(n)) 条", n == 1 ? "1 record" : "\(Fmt.count(n)) records")
+        default: return Fmt.bytes(reclaim)
+        }
+    }
+
     private func subtitle(things: [Thing], selected: UInt64) -> String {
         switch kind {
         case .project:
@@ -150,6 +161,14 @@ struct KindCard: View {
         case .app:
             let idle = things.filter { $0.detail != nil }.count
             return L("\(things.count) 个应用连同数据，\(idle) 个三个月没打开", "\(things.count) apps with their data, \(idle) unused for 3 months")
+        case .largeFile:
+            let n = things.reduce(0) { $0 + $1.items.count }
+            return selected > 0 ? L("已勾选 \(Fmt.bytes(selected))", "\(Fmt.bytes(selected)) selected")
+                                : L("\(n) 个别处没列出的大文件，都没勾", "\(n) big files nothing else lists, none ticked")
+        case .browser:
+            let cache = model.reclaimable(.browser)
+            return L("\(things.count) 个浏览器的浏览记录和 Cookie；缓存 \(Fmt.bytes(cache))",
+                     "history and cookies in \(things.count) browsers; \(Fmt.bytes(cache)) of cache")
         default:
             return selected > 0 ? L("已勾选 \(Fmt.bytes(selected))", "\(Fmt.bytes(selected)) selected")
                                 : L("\(things.count) 组，默认都没勾，需要你决定", "\(things.count) groups, none preselected")

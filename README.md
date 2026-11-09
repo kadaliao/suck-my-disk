@@ -68,8 +68,10 @@ back.
 | Media | Rendered frame folders (`00001.png`…) | Deleted only when the matching final video is found; otherwise moved to the Trash. |
 | Dev caches | uv, npm, pnpm, bun, Yarn, pip, Homebrew, Cargo, Xcode DerivedData, iOS Simulators, Docker build cache | The tool's own cleanup command when there is one (`uv cache prune`, `brew cleanup`…), otherwise deleted. |
 | Models | Ollama, Hugging Face, ModelScope, LM Studio | `ollama rm`, `hf cache rm`, or Trash. Nothing preselected. |
+| Large files | Installers, disk images and VMs, videos, archives, model weights, apps outside Applications, that no other section lists | Moved to the Trash. Nothing preselected; files git tracks are left out. |
 | Apps | Every app in Applications, with its folders in `~/Library` (Application Support, Caches, Containers, Preferences…) | **Uninstall**: the app and its data go to the Trash. **Caches**: caches, logs and window state are deleted; the app and your data stay. Nothing preselected; skipped while the app runs. |
 | App data | WeChat, Chrome, Lark, Notion, iPhone backups… | Never deleted. You get instructions for cleaning inside the app. |
+| Browsers (Privacy) | History, download list, cookies, form entries, last session and cache of Chrome, Edge, Brave, Arc, Firefox and other Chromium and Firefox browsers; Safari's cache | Records erased from the browser's own databases, caches deleted. Never preselected; skipped while the browser is open. Safari's history: instructions only. |
 
 | | |
 | --- | --- |
@@ -161,6 +163,9 @@ The [user guide](docs/user-guide.md) walks through every screen and command.
 - Tools with their own cleanup command (uv, npm, pnpm, bun, Yarn, Homebrew,
   `simctl`, Docker) are run instead of deleting their folders, because the
   tool knows what is still in use. `docker system prune` is never used.
+- Browser history and cookies are erased only when you tick them, only while
+  the browser is closed, in one transaction per database. Passwords,
+  bookmarks, cards and extensions are never touched.
 - Every action goes into a journal, with the space actually freed and how to
   restore it (`smd journal`, `smd wake`).
 

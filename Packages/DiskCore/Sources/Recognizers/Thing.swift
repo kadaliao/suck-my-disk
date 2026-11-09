@@ -3,7 +3,8 @@ import Insights
 import Foundation
 
 public enum ThingKind: String, Codable, Sendable, CaseIterable {
-    case project, media, devCache, model, app, appData, system
+    // New kinds go at the end: `smd things` numbers items in report order.
+    case project, media, devCache, model, app, appData, system, largeFile, browser
 
     public var title: String {
         switch self {
@@ -14,6 +15,8 @@ public enum ThingKind: String, Codable, Sendable, CaseIterable {
         case .app: return L("应用", "Apps")
         case .appData: return L("应用数据", "App data")
         case .system: return L("系统", "System")
+        case .largeFile: return L("大文件", "Large files")
+        case .browser: return L("浏览器", "Browsers")
         }
     }
 }
@@ -24,14 +27,27 @@ public enum Tier: Int, Codable, Sendable, Comparable {
     case regenerable = 1  // can be rebuilt / re-downloaded
     case yours = 2        // your own files: goes to the Trash
     case guide = 3        // we only explain how to clean it
+    case erase = 4        // records erased for privacy (browser history, cookies): gone for good
 
-    public static func < (a: Tier, b: Tier) -> Bool { a.rawValue < b.rawValue }
+    /// Order from safest to most personal; `guide` stays last (raw values are what reports store).
+    var rank: Int {
+        switch self {
+        case .lossless: return 0
+        case .regenerable: return 1
+        case .yours: return 2
+        case .erase: return 3
+        case .guide: return 4
+        }
+    }
+
+    public static func < (a: Tier, b: Tier) -> Bool { a.rank < b.rank }
 
     public var title: String {
         switch self {
         case .lossless: return L("无损", "lossless")
         case .regenerable: return L("可再生", "regenerable")
         case .yours: return L("你的文件", "yours")
+        case .erase: return L("永久清除", "erased")
         case .guide: return L("仅指引", "guide only")
         }
     }
@@ -42,8 +58,31 @@ public enum ReclaimAction: Codable, Sendable, Equatable {
     case deleteAll(paths: [String])    // several small regenerable dirs
     case trash(path: String)           // moved to the Trash
     case command(argv: [String], cwd: String?)
+    /// Runs DELETE / UPDATE statements on another program's SQLite database (a browser's
+    /// history), in one transaction, then compacts it. Statements on tables that don't exist
+    /// are skipped. Never preselected.
+    case erase(db: String, sql: [String])
     indirect case compound(actions: [ReclaimAction])
     case none
+
+    /// Paths it removes (deletes or moves to the Trash). An erased database is not removed.
+    public var paths: [String] {
+        switch self {
+        case .delete(let p), .trash(let p): return [p]
+        case .deleteAll(let ps): return ps
+        case .compound(let acts): return acts.flatMap(\.paths)
+        case .command, .erase, .none: return []
+        }
+    }
+
+    /// Databases it erases records from.
+    public var databases: [String] {
+        switch self {
+        case .erase(let db, _): return [db]
+        case .compound(let acts): return acts.flatMap(\.databases)
+        default: return []
+        }
+    }
 
     /// Everything it removes goes to the Trash: an app being uninstalled, your own files.
     public var isTrashOnly: Bool {
@@ -74,10 +113,13 @@ public struct ReclaimItem: Codable, Sendable, Identifiable {
     /// anything runs from that app. Picked by hand, it doesn't wait out the 7-day rule:
     /// "not running" is the check that matters for an app, and what goes is rebuilt or trashed.
     public var app: String?
+    /// How many records an `.erase` item clears (history entries, cookies), when known.
+    /// Shown instead of a size: erasing records frees next to nothing.
+    public var records: Int?
 
     public init(id: String, label: String, path: String?, bytes: UInt64, estimate: UInt64? = nil,
                 tier: Tier, action: ReclaimAction, restore: String? = nil, reason: String,
-                preselected: Bool, warnings: [String] = [], app: String? = nil) {
+                preselected: Bool, warnings: [String] = [], app: String? = nil, records: Int? = nil) {
         self.id = id
         self.label = label
         self.path = path
@@ -90,6 +132,7 @@ public struct ReclaimItem: Codable, Sendable, Identifiable {
         self.preselected = preselected
         self.warnings = warnings
         self.app = app
+        self.records = records
     }
 }
 

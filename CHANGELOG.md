@@ -8,6 +8,29 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Large files.** A new section lists big files in your home folder that no
+  other section explains: installers and disk images (with a note when the app
+  is already installed), virtual machines, videos, audio, archives, model
+  weights (a sharded model as one folder), apps outside Applications, and
+  anything else of 100 MB or more. Each shows when it was last opened and
+  where it was downloaded from. Your Library, dot folders, git-tracked files
+  and anything another section lists are left out. Nothing is preselected;
+  what you pick goes to the Trash.
+- **Browsers**, under a new Privacy heading. For each profile of Chrome, Edge,
+  Brave, Arc, Dia, Vivaldi, Opera and other Chromium browsers, and of Firefox,
+  Zen, LibreWolf, Waterfox and Floorp: browsing history, download history,
+  cookies, autofill form entries, the last session's tabs, and the cache.
+  Records are erased from the browser's own databases in one transaction and
+  shown as a count rather than a size. They are never preselected, and are
+  skipped while the browser is open. Passwords, bookmarks, addresses, cards and
+  extensions are never touched. Safari gets its cache, plus instructions for
+  its history and cookies, because only Safari clears them on your other
+  devices too. Browsers that were removed but left their data are listed as
+  such.
+- `smd things` lists both, and shows erased records as `✕` with their count.
+
 ## [0.5.4] - 2026-11-09
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and

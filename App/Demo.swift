@@ -23,6 +23,8 @@ struct DemoData {
         b.models()
         b.apps()
         b.appData()
+        b.largeFiles()
+        b.browsers()
 
         var volume = VolumeInfo.of()
         volume.uuid = "demo"
@@ -439,6 +441,137 @@ private struct Builder {
         ], caches: [("Logs/Unity", 0.02)])
     }
 
+    // MARK: large files and browsers
+
+    mutating func largeFiles() {
+        func file(_ rel: String, _ size: Double, _ reason: String, days: Double, warnings: [String] = []) -> ReclaimItem {
+            let path = h + "/" + rel
+            var w = warnings
+            if days < 7 { w.append(Guards.waitNote(changed: ago(days))) }
+            return ReclaimItem(id: "large:" + path, label: (path as NSString).lastPathComponent, path: path, bytes: gb(size),
+                               tier: .yours, action: .trash(path: path), restore: L("从废纸篓放回", "put back from the Trash"),
+                               reason: reason + L(" · 修改于 \(Fmt.ago(ago(days)))", " · modified \(Fmt.ago(ago(days)))"),
+                               preselected: false, warnings: w)
+        }
+        func group(_ id: String, _ title: String, _ items: [ReclaimItem]) {
+            things.append(Thing(id: "large:" + id, kind: .largeFile, title: title, path: nil,
+                                bytes: items.reduce(0) { $0 + $1.bytes }, detail: L("\(items.count) 个", items.count == 1 ? "1 item" : "\(items.count) items"),
+                                items: items.sorted { $0.bytes > $1.bytes }))
+        }
+        func from(_ host: String) -> String { L("下载自 \(host)", "downloaded from \(host)") }
+        func installed(_ app: String) -> String { L("已经装了 \(app)", "\(app) is already installed") }
+        func opened(_ days: Double) -> String { L("上次打开 \(Fmt.ago(ago(days)))", "last opened \(Fmt.ago(ago(days)))") }
+        group("vm", L("虚拟机", "Virtual machines"), [
+            file("Parallels/Windows 11.pvm", 38.4, opened(212), days: 212,
+                 warnings: [L("虚拟机的整块磁盘：确认里面没有要留的东西", "A whole virtual machine disk: make sure nothing in it is still needed")]),
+        ])
+        group("installer", L("安装包和磁盘映像", "Installers and disk images"), [
+            file("Downloads/Xcode_26.1.xip", 11.9, from("developer.apple.com"), days: 96),
+            file("Downloads/ubuntu-24.04.3-live-server-arm64.iso", 2.9, from("ubuntu.com") + " · " + opened(140), days: 141),
+            file("Downloads/Docker.dmg", 0.62, installed("Docker") + " · " + from("desktop.docker.com"), days: 2),
+            file("Downloads/Blender-4.5.3-macos-arm64.dmg", 0.41, installed("Blender") + " · " + from("download.blender.org"), days: 133),
+            file("Downloads/Figma.dmg", 0.24, installed("Figma") + " · " + from("figma.com"), days: 61),
+        ])
+        group("video", L("视频", "Videos"), [
+            file("Movies/Screen Recording 2026-03-14 at 10.02.11.mov", 7.4, opened(238), days: 240),
+            file("Desktop/conference-talk-raw.mp4", 4.8, opened(51), days: 52),
+            file("Downloads/drone-footage-4k.mp4", 3.2, from("drive.google.com"), days: 174),
+            file("Movies/Captures/gameplay-2026-07-02.mkv", 2.1, "", days: 130),
+        ])
+        group("archive", L("压缩包", "Archives"), [
+            file("Documents/Photos Backup 2022.zip", 9.1, opened(402), days: 410),
+            file("Downloads/dataset-v2.tar.gz", 5.6, from("huggingface.co"), days: 88),
+        ])
+        group("model", L("模型权重", "Model weights"), [
+            file("models/sdxl-base-1.0", 6.9, "", days: 160),
+            file("Downloads/whisper-large-v3.gguf", 3.1, from("huggingface.co"), days: 120),
+        ])
+        group("other", L("其他大文件", "Other large files"), [
+            file("workspace/analytics/events-2025.parquet", 2.4, "", days: 75),
+        ])
+        // Reasons start with " · " when nothing else is known.
+        for t in things.indices where things[t].kind == .largeFile {
+            for i in things[t].items.indices where things[t].items[i].reason.hasPrefix(" · ") {
+                things[t].items[i].reason.removeFirst(3)
+            }
+        }
+    }
+
+    mutating func browsers() {
+        let sup = h + "/Library/Application Support/"
+        func profile(_ title: String, _ dir: String, app: String?, days: Double, cache: Double, history: Int, downloads: Int,
+                     cookies: Int, forms: Int, sessions: Bool, firefox: Bool = false, gone: Bool = false) {
+            let p = sup + dir
+            let sync = firefox
+                ? L("只清这台 Mac 上的；开了同步的话，其他设备上的不受影响", "only on this Mac; with sync on, your other devices keep theirs")
+                : L("只清这台 Mac 上的；开了同步的话，账号里的记录要在网上另外删", "only on this Mac; with sync on, delete your account's copy online too")
+            func erase(_ kind: String, _ label: String, _ n: Int, _ reason: String, warnings: [String] = []) -> ReclaimItem {
+                ReclaimItem(id: "browser:\(kind):" + p, label: label, path: nil, bytes: 0, tier: .erase,
+                            action: .erase(db: p + "/History", sql: []), reason: reason, preselected: false,
+                            warnings: warnings, app: app, records: n)
+            }
+            var items: [ReclaimItem] = []
+            if history > 0 {
+                items.append(erase("history", firefox ? L("浏览和下载记录", "Browsing and download history") : L("浏览记录", "Browsing history"), history,
+                                   firefox ? L("\(Fmt.count(history)) 个网址的访问记录，包括下载列表；书签不动",
+                                               "visits to \(Fmt.count(history)) addresses, the downloads list included; bookmarks stay")
+                                           : L("\(Fmt.count(history)) 个网址的访问记录，还有搜索词、常去的网站和地址栏建议",
+                                               "visits to \(Fmt.count(history)) addresses, plus search terms, top sites and address-bar suggestions"),
+                                   warnings: [sync]))
+            }
+            if downloads > 0 {
+                items.append(erase("downloads", L("下载记录", "Download history"), downloads,
+                                   L("下载列表里的 \(Fmt.count(downloads)) 条记录；下载下来的文件不动", "\(Fmt.count(downloads)) entries in the downloads list; the files themselves stay")))
+            }
+            if cookies > 0 {
+                items.append(erase("cookies", "Cookie", cookies,
+                                   L("网站存在浏览器里的 \(Fmt.count(cookies)) 个 Cookie，用来记住登录和跟踪访问", "\(Fmt.count(cookies)) cookies websites keep to remember logins and follow visits"),
+                                   warnings: [L("清掉后所有网站都要重新登录", "signs you out of every website")]))
+            }
+            if forms > 0 {
+                items.append(erase("forms", L("表单自动填充记录", "Autofill form entries"), forms,
+                                   L("在网页表单里输过的 \(Fmt.count(forms)) 条内容；保存的密码、地址和银行卡不动", "\(Fmt.count(forms)) things typed into web forms; saved passwords, addresses and cards stay")))
+            }
+            if sessions {
+                items.append(ReclaimItem(id: "browser:sessions:" + p, label: L("上次打开的标签页", "Last session's tabs"), path: nil,
+                                         bytes: 2_400_000, tier: .erase, action: .deleteAll(paths: [p + "/Sessions"]),
+                                         reason: L("浏览器用来恢复上次的窗口、标签页和最近关闭的标签页", "what the browser uses to reopen your last windows, tabs and recently closed tabs"),
+                                         preselected: false, warnings: [L("下次打开浏览器不会再恢复上次的标签页", "the browser won't reopen your last tabs")], app: app))
+            }
+            if cache > 0 {
+                items.append(ReclaimItem(id: "browser:cache:" + p, label: L("缓存", "Cache"), path: nil, bytes: gb(cache), tier: .regenerable,
+                                         action: .deleteAll(paths: [p + "/Cache"]), restore: L("浏览网页时会重新下载", "downloaded again as you browse"),
+                                         reason: L("网页的图片、脚本和离线缓存；登录状态和设置都不受影响", "images, scripts and offline caches of web pages; logins and settings stay"),
+                                         preselected: false, app: app))
+            }
+            things.append(Thing(id: "browser:" + p, kind: .browser, title: title, path: p, bytes: gb(cache) + gb(0.3),
+                                lastActive: ago(days), detail: gone ? L("应用已经删掉，这些是它留下的", "the app is gone; this is what it left") : nil,
+                                items: items))
+        }
+        profile("Google Chrome", "Google/Chrome/Default", app: "/Applications/Google Chrome.app", days: 0, cache: 6.8,
+                history: 24_318, downloads: 412, cookies: 3_166, forms: 287, sessions: true)
+        profile("Firefox", "Firefox/Profiles/x7k2p9qa.default-release", app: "/Applications/Firefox.app", days: 23, cache: 0.92,
+                history: 6_844, downloads: 0, cookies: 1_207, forms: 96, sessions: true, firefox: true)
+        profile("Brave", "BraveSoftware/Brave-Browser/Default", app: nil, days: 290, cache: 0.18,
+                history: 1_204, downloads: 37, cookies: 388, forms: 0, sessions: false, gone: true)
+        let safari = h + "/Library/Safari"
+        things.append(Thing(id: "browser:" + safari, kind: .browser, title: "Safari", path: safari, bytes: gb(0.64),
+                            lastActive: ago(4), items: [
+            ReclaimItem(id: "browser:cache:" + safari, label: L("缓存", "Cache"), path: nil, bytes: gb(0.31), tier: .regenerable,
+                        action: .deleteAll(paths: [h + "/Library/Caches/com.apple.Safari"]), restore: L("浏览网页时会重新下载", "downloaded again as you browse"),
+                        reason: L("网页的图片、脚本和离线缓存；登录状态和设置都不受影响", "images, scripts and offline caches of web pages; logins and settings stay"),
+                        preselected: false, app: "/Applications/Safari.app"),
+            ReclaimItem(id: "browser:history:" + safari, label: L("浏览记录", "Browsing history"), path: nil, bytes: 0, tier: .guide, action: .none,
+                        reason: L("在 Safari 里清：「历史记录」→「清除历史记录…」。开了 iCloud 里的 Safari 同步，你其他设备上的也会一起清掉",
+                                  "In Safari: History → Clear History…. With Safari in iCloud on, it clears your other devices too"),
+                        preselected: false, records: 5_902),
+            ReclaimItem(id: "browser:cookies:" + safari, label: L("Cookie 和网站数据", "Cookies and website data"), path: nil, bytes: 0,
+                        tier: .guide, action: .none,
+                        reason: L("在 Safari 里清：「设置」→「隐私」→「管理网站数据…」→「全部移除」", "In Safari: Settings → Privacy → Manage Website Data… → Remove All"),
+                        preselected: false),
+        ]))
+    }
+
     // MARK: app data and system
 
     mutating func appData() {
@@ -497,7 +630,12 @@ private struct Builder {
         ]
         var folded: Set<String> = [h + "/Pictures/Photos Library.photoslibrary"]
         for (p, b) in appFolders { folders[p, default: 0] += b }
-        for t in things where t.kind != .app {
+        // Large files have no folder of their own: each file is in the index by itself.
+        for t in things where t.kind == .largeFile {
+            for i in t.items { if let p = i.path { folders[p, default: 0] += i.bytes } }
+        }
+        // Browser profiles sit inside app data, which is already counted.
+        for t in things where t.kind != .app && t.kind != .browser {
             let inside = t.items.filter { i in
                 guard let p = i.path, let tp = t.path else { return false }
                 return p.hasPrefix(tp + "/")

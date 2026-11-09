@@ -19,6 +19,8 @@ public final class Executor {
     let force: Bool
     let chosen: Set<String>
     let log: (String) -> Void
+    /// Rows the current item's `.erase` actions removed.
+    private var erased = 0
 
     /// `force` lifts the 7-day rule for every item. `chosen` holds the items the person picked
     /// themselves: the regenerable ones among them skip the rule too, since they asked for it and
@@ -37,14 +39,7 @@ public final class Executor {
     }
 
     /// Paths an action would remove.
-    public static func paths(_ a: ReclaimAction) -> [String] {
-        switch a {
-        case .delete(let p), .trash(let p): return [p]
-        case .deleteAll(let ps): return ps
-        case .compound(let acts): return acts.flatMap(paths)
-        case .command, .none: return []
-        }
-    }
+    public static func paths(_ a: ReclaimAction) -> [String] { a.paths }
 
     /// Commands an action would run.
     static func commands(_ a: ReclaimAction) -> [[String]] {
@@ -82,6 +77,19 @@ public final class Executor {
         return nil
     }
 
+    /// A database whose records an item erases: it stays, so only where it is and who names it matter.
+    func check(database path: String, programs: [Guards.Program]?) -> String? {
+        if Guards.isDenied(path) { return L("受保护的位置", "protected location") }
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return L("已经不存在", "no longer exists") }
+        if (st.st_mode & S_IFMT) != S_IFREG { return L("不是普通文件", "is not a regular file") }
+        guard let programs else { return L("没法确认有没有程序在用", "can't tell whether a program is using it") }
+        if let p = Guards.program(using: path, in: programs) {
+            return L("\(p.summary)（PID \(p.pid)）正在用", "in use by \(p.summary) (PID \(p.pid))")
+        }
+        return nil
+    }
+
     static func exists(_ p: String) -> Bool {
         var st = stat()
         return lstat(p, &st) == 0
@@ -107,14 +115,16 @@ public final class Executor {
     func runOne(_ original: ReclaimItem) -> Outcome {
         var item = original
         if item.app != nil { item.action = Self.existing(item.action, keep: item.path) }
-        let paths = Self.paths(item.action), argvs = Self.commands(item.action)
+        let paths = Self.paths(item.action), argvs = Self.commands(item.action), dbs = item.action.databases
+        let acts = !paths.isEmpty || !argvs.isEmpty || !dbs.isEmpty
         // The list is older than the disk: an app removed meanwhile is reported, not half cleaned.
-        if let app = item.app, !Self.exists(app) || (paths.isEmpty && argvs.isEmpty) {
+        if let app = item.app, !Self.exists(app) || !acts {
             return finish(item, .skipped, 0, L("\(Fmt.home(app)) 已经不在了", "\(Fmt.home(app)) is no longer there"), before: 0, after: 0)
         }
-        let programs = paths.isEmpty && argvs.isEmpty ? [] : Guards.runningPrograms()
-        // Picked by hand, rebuildable items and an app's items don't wait out the 7-day rule.
-        let recentOK = force || (chosen.contains(item.id) && (item.tier == .regenerable || item.app != nil))
+        let programs = acts ? Guards.runningPrograms() : []
+        // Picked by hand, rebuildable items, erased records and an app's items don't wait out the 7-day rule:
+        // a browser's history always changed this week.
+        let recentOK = force || (chosen.contains(item.id) && (item.tier == .regenerable || item.tier == .erase || item.app != nil))
         if let app = item.app {
             let name = ((app as NSString).lastPathComponent as NSString).deletingPathExtension
             guard let programs else {
@@ -130,6 +140,11 @@ public final class Executor {
         for p in paths {
             if let why = check(p, programs: programs, recentOK: recentOK) {
                 return finish(item, .skipped, 0, "\(Fmt.home(p)): \(why)", before: 0, after: 0)
+            }
+        }
+        for db in dbs {
+            if let why = check(database: db, programs: programs) {
+                return finish(item, .skipped, 0, "\(Fmt.home(db)): \(why)", before: 0, after: 0)
             }
         }
         for argv in argvs {
@@ -148,8 +163,10 @@ public final class Executor {
         // Measure the disk the item is on: it may be an external one.
         let disk = Self.paths(item.action).lazy.compactMap(ExternalVolumes.mountPoint).first ?? Firmlinks.dataRoot
         let before = VolumeInfo.freeBytes(disk)
+        erased = 0
         let error = perform(item.action)
         let after = VolumeInfo.freeBytes(disk)
+        if erased > 0 { detail.append(L("清除了 \(erased) 条记录", "erased \(erased) records")) }
         if let error { detail.append(error) }
         return finish(item, error == nil ? .done : .failed, Int64(after) - Int64(before),
                       error ?? "", before: before, after: after, detail: detail.joined(separator: "\n"))
@@ -189,6 +206,16 @@ public final class Executor {
             let env = Self.lockingTools.contains((argv[0] as NSString).lastPathComponent) ? ["UV_LOCK_TIMEOUT": "30"] : [:]
             let r = Shell.run(argv, cwd: cwd, timeout: 3600, stream: true, env: env)
             return r.ok ? nil : "exit \(r.status): \(r.stderr.suffix(400).trimmingCharacters(in: .whitespacesAndNewlines))"
+        case .erase(let db, let sql):
+            log("  erase  " + Fmt.home(db))
+            do {
+                erased += try ForeignDB.erase(db, statements: sql)
+                return nil
+            } catch let e as ForeignDB.Failure {
+                return e.description
+            } catch {
+                return "\(error)"
+            }
         case .compound(let acts):
             for x in acts { if let e = perform(x) { return e } }
             return nil
@@ -214,6 +241,7 @@ public final class Executor {
         switch item.action {
         case .delete, .deleteAll: actionName = "delete"
         case .trash: actionName = "trash"
+        case .erase: actionName = "erase"
         case .command(let argv, _): actionName = "command"; command = argv.joined(separator: " ")
         case .compound(let acts):
             actionName = item.app != nil && item.action.isTrashOnly ? "uninstall" : "compound"

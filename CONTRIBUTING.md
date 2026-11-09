@@ -147,6 +147,13 @@ however useful the feature.
    never preselected, and those items carry `app` so the executor skips them
    while the app runs. Match data to an app only by bundle id or by a name
    specific to that app.
+10. **Erasing records is the user's call.** Records that are neither files nor
+   rebuildable (a browser's history, cookies, form entries) are `Tier.erase`
+   with an `.erase` action: DELETE / UPDATE statements on the program's own
+   SQLite database, run by the executor in one exclusive transaction. Never
+   preselected (the planner refuses it anyway), the item carries `app` so it
+   is skipped while the program runs, and the program's passwords, bookmarks,
+   payment data and extensions are never part of it.
 
 ## Adding a recognizer
 

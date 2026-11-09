@@ -264,8 +264,8 @@ private struct CleanRunRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
                     Text(row.item.label).lineLimit(1)
-                    if let p = row.item.path {
-                        Text(Fmt.home(p))
+                    if let where_ = row.item.path.map(Fmt.home) ?? row.group {
+                        Text(where_)
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
@@ -281,7 +281,7 @@ private struct CleanRunRow: View {
                 }
             }
             Spacer(minLength: 12)
-            Text(Fmt.bytes(row.item.estimate))
+            Text(ItemRow.amount(row.item))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
