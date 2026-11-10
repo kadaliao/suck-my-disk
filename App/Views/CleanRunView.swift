@@ -5,7 +5,6 @@ import SwiftUI
 /// Clean Up, full window: a ring that fills in item by item, the space freed so far, and
 /// every item with what happened to it. When the run ends the page becomes its result.
 struct CleanRunView: View {
-    @Environment(AppModel.self) private var model
     var run: CleanRun
 
     var body: some View {
@@ -13,11 +12,11 @@ struct CleanRunView: View {
             let ring = min(250, max(168, geo.size.height * 0.32))
             VStack(spacing: 0) {
                 CleanRing(run: run, size: ring)
-                headline.padding(.top, 30)
+                CleanRunHeadline(run: run).padding(.top, 30)
                 CleanRunList(run: run, maxHeight: max(120, min(420, geo.size.height - ring - 270)))
                     .frame(maxWidth: 580)
                     .padding(.top, 26)
-                buttons.padding(.top, 26)
+                CleanRunButtons(run: run).padding(.top, 26)
             }
             .padding(.horizontal, 40)
             .frame(width: geo.size.width, height: geo.size.height)
@@ -26,8 +25,15 @@ struct CleanRunView: View {
         .contentShape(.rect)
         .ignoresSafeArea()
     }
+}
 
-    private var headline: some View {
+/// The title and the line under it. A view of its own, like the button below: read inside the
+/// page's GeometryReader closure, the run could end without them being drawn again, which left
+/// the page on "Getting ready…" with no way out.
+private struct CleanRunHeadline: View {
+    var run: CleanRun
+
+    var body: some View {
         VStack(spacing: 6) {
             Text(title)
                 .font(.title2.weight(.semibold))
@@ -79,9 +85,14 @@ struct CleanRunView: View {
         parts.append(s < 60 ? L("用时 \(s) 秒", "took \(s) s") : L("用时 \(s / 60) 分 \(s % 60) 秒", "took \(s / 60) min \(s % 60) s"))
         return parts.joined(separator: L("，", ", "))
     }
+}
 
-    @ViewBuilder
-    private var buttons: some View {
+/// Stop while it runs, Done once it has ended.
+private struct CleanRunButtons: View {
+    @Environment(AppModel.self) private var model
+    var run: CleanRun
+
+    var body: some View {
         if run.finished {
             Button { model.closeCleanRun() } label: {
                 Text(L("完成", "Done")).frame(minWidth: 110)
