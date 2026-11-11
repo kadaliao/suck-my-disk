@@ -110,20 +110,20 @@ place to change it.
    > Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and
    > notarized.
 
-8. **Homebrew.** Point the tap at the release:
+8. **Homebrew.** Nothing to do: a scheduled workflow in
+   [kadaliao/homebrew-tap](https://github.com/kadaliao/homebrew-tap) picks up
+   the latest release within 6 hours and updates `Casks/suck-my-disk.rb` (the
+   app) and `Formula/smd.rb` (the CLI). To update the tap right away:
 
    ```sh
-   scripts/update-homebrew-tap.sh v<version>
+   gh workflow run bump.yml -R kadaliao/homebrew-tap
    ```
 
-   It reads `SHA256SUMS` from the release, rewrites `Casks/suck-my-disk.rb`
-   (the app) and `Formula/smd.rb` (the CLI) in
-   [kadaliao/homebrew-tap](https://github.com/kadaliao/homebrew-tap), commits
-   and pushes; it needs push access to that repo. Set `TAP_DIR` to a local
-   clone and `PUSH=0` to check the commit before pushing it yourself. Skip
-   this for pre-releases. The cask is marked `auto_updates`: people who
-   installed the app with Homebrew get the release from the in-app updater
-   anyway, so the tap is what new installs and `brew upgrade smd` see.
+   Pre-releases are skipped. The tap downloads `SuckMyDisk-<version>.zip` and
+   `smd-<version>-macos.zip`; if you rename them, change the URLs in the tap
+   too. The cask is marked `auto_updates`: people who installed the app with
+   Homebrew get the release from the in-app updater anyway, so the tap is
+   what new installs and `brew upgrade smd` see.
 
 ## If something fails
 

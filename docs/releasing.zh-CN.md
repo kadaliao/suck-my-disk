@@ -80,13 +80,13 @@
    >
    > Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and notarized.
 
-8. **Homebrew。** 让 tap 指向这个版本：
+8. **Homebrew。** 不用手动做：[kadaliao/homebrew-tap](https://github.com/kadaliao/homebrew-tap) 的定时工作流会在 6 小时内跟上最新版本，更新 `Casks/suck-my-disk.rb`（App）和 `Formula/smd.rb`（命令行）。想马上更新：
 
    ```sh
-   scripts/update-homebrew-tap.sh v<version>
+   gh workflow run bump.yml -R kadaliao/homebrew-tap
    ```
 
-   它从发布页读取 `SHA256SUMS`，重新生成 [kadaliao/homebrew-tap](https://github.com/kadaliao/homebrew-tap) 里的 `Casks/suck-my-disk.rb`（App）和 `Formula/smd.rb`（命令行），提交并推送，需要对那个仓库有推送权限。把 `TAP_DIR` 设成本地克隆、再加 `PUSH=0`，可以先检查提交再自己推送。pre-release 不用做这一步。这个 cask 标了 `auto_updates`：用 Homebrew 装 App 的人照样通过 App 内更新拿到新版本，所以 tap 影响的是新安装和 `brew upgrade smd`。
+   pre-release 会被跳过。tap 下载的是 `SuckMyDisk-<version>.zip` 和 `smd-<version>-macos.zip`，改名时要去 tap 里一起改下载地址。这个 cask 标了 `auto_updates`：用 Homebrew 装 App 的人照样通过 App 内更新拿到新版本，所以 tap 影响的是新安装和 `brew upgrade smd`。
 
 ## 出问题时
 
