@@ -35,6 +35,11 @@ public enum AppRecognizer {
 
     static let selfID = "com.kadaliao.SuckMyDisk"
 
+    /// On an app that belongs to the system. The app leaves it out once its helper is on.
+    public static var passwordWarning: String {
+        L("移到废纸篓时，访达会要管理员密码", "Finder will ask for an administrator password to move it to the Trash")
+    }
+
     /// Folder names too generic to belong to one app.
     static let genericNames: Set<String> = ["google", "microsoft", "adobe", "apple", "python", "java", "electron",
                                             "code", "helper", "settings", "preferences", "updater", "installer",
@@ -74,7 +79,7 @@ public enum AppRecognizer {
 
             var warnings: [String] = []
             if !app.movable {
-                warnings.append(L("移到废纸篓时，访达会要管理员密码", "Finder will ask for an administrator password to move it to the Trash"))
+                warnings.append(passwordWarning)
             }
             // Components for every user (daemons, privileged helpers): named after the app, or
             // after its developer when no other installed app comes from them.

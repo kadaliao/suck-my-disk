@@ -13,6 +13,7 @@ App/                          SwiftUI app (macOS 26, Liquid Glass)
   SuckMyDiskApp.swift         window, menu bar item, Settings, ⌘R
   AppModel.swift              state: index, live loop, report, selection, cleanup
   Updater.swift               self-update schedule: when to check, download, install, relaunch
+  Helper.swift                turns the root helper on and off (SMAppService), shows its state
   Snapshotter.swift           --snapshot mode: renders every section to PNG
   Demo.swift                  --demo mode: made-up data for screenshots and trying the app
   Views/                      Overview, Category (reclaim lists), Treemap, Timeline, Clean Up page, shared components
@@ -24,8 +25,10 @@ Packages/DiskCore/            Swift package: the engine and the smd CLI
   Sources/Recognizers/        projects, frames, dev caches, models, installed apps, app data, system; report and planner
   Sources/Reclaim/            executor: re-checks guards, acts, writes the journal
   Sources/Update/             self-update: GitHub release, checksum and signature checks, swap, relaunch
+  Sources/Privileged/         what the root helper does and how the app reaches it (no other module in it)
   Sources/smd/                command line
   Tests/DiskCoreTests/        Swift Testing suites
+Helper/                       the root helper's program and launchd job (built into the app)
 scripts/                      release, icon and screenshot tooling
 project.yml                   XcodeGen spec for the app (the .xcodeproj is generated, not committed)
 ```
@@ -36,6 +39,8 @@ Module dependencies (from `Package.swift`):
 CFastScan ← DiskIndex ← Insights ← Recognizers ← Reclaim
                 ↑                                   ↑
                 Update (app only)    smd and the app use all of them
+
+Privileged stands alone: the app and the helper use it, smd doesn't
 ```
 
 ## The data flow
@@ -284,7 +289,10 @@ Then it acts: `removefile` for deletes,
 `FileManager.trashItem` for the Trash, or the tool's command through `Shell`.
 An `.app` bundle that `trashItem` can't move (it belongs to root, as App Store
 and installer apps do) is handed to Finder through `osascript`, which asks for
-an administrator password like a drag to the Trash would.
+an administrator password like a drag to the Trash would. The app passes the
+executor an `elevate` closure when [the helper](#the-helper-privileged-helper)
+is on: it is tried first, and Finder only if it fails (the reason goes into
+the journal's detail).
 Before deleting a Python virtualenv it records `pyvenv.cfg` and a
 `pip freeze`. Free space is measured before and after, and everything goes
 into the journal.
@@ -334,6 +342,42 @@ external disk ("Studio SSD"). `AppModel` then
 skips rescans and saving, and Clean Up only removes the items from the lists;
 demo items never reach the executor. `scripts/doc-screenshots.sh` runs
 `snapshots.sh` in demo mode for the screenshots in `docs/images`.
+
+## The helper (`Privileged`, `Helper`)
+
+An app that belongs to root can only be moved by root. Instead of Finder's
+password dialog every time, the person can turn on a helper once: a launchd
+daemon inside the app bundle (`Contents/MacOS/com.kadaliao.SuckMyDisk.helper`,
+job in `Contents/Library/LaunchDaemons`), registered with
+`SMAppService.daemon` by `App/Helper.swift` and allowed by the person in
+System Settings. Nothing is copied outside the bundle, so an update replaces
+the helper with the app.
+
+It is root, so it is small and trusts nothing it is sent:
+
+- **Who may call.** The listener sets
+  `setConnectionCodeSigningRequirement`: identifier `com.kadaliao.SuckMyDisk`,
+  Apple anchor, and the team that signed the helper itself (read from its own
+  signature, so a fork's build trusts the fork's app). A helper with no team
+  refuses to run. The app sets the matching requirement on its end. The user
+  is taken from the connection (`effectiveUserIdentifier`) and must be in the
+  `admin` group.
+- **What it does.** One message, `trashApp(path)`, handled by `AppMover`:
+  the path must be `/Applications/<name>.app` or one folder down (never
+  Utilities, never inside another bundle, no `.`/`..`/empty parts); the
+  bundle must be a real folder with a bundle id, not SIP-protected, not
+  SuckMyDisk, with no process running from it (`proc_pidpath`; no
+  subprocesses, so nothing is looked up on a PATH as root). The Trash must be
+  a real folder owned by the caller on the same volume.
+- **The move** is one `renameatx_np` with `RENAME_EXCL | RENAME_NOFOLLOW_ANY`:
+  it never replaces anything and fails if any component of either path is a
+  symlink, so a swap after the checks can't redirect it.
+- **Lifetime.** launchd starts it on demand (`MachServices`); it exits after
+  30 idle seconds. `hello` returns `Privileged.version`; a helper left over
+  from before an update is told to `quit` and the new binary answers.
+
+`smd` doesn't use the helper (its signature isn't the app's), and demo,
+snapshot and non-release builds never register it.
 
 ## Updates (`Update`, `Updater`)
 
@@ -404,6 +448,12 @@ fixtures built in temporary folders:
   out), Homebrew and system-component warnings, running apps left alone
   (translocated copies too), hand-picked app items and the 7-day rule, a
   removed app reported, shared folders protected.
+- `PrivilegedTests`: the helper's rules on made-up folders, as an ordinary
+  user: which paths count as an app in an applications folder, what is
+  refused (non-administrators, running apps, SuckMyDisk itself, a Trash that
+  isn't the caller's), symlinks never followed on either side, nothing in the
+  Trash replaced, and the executor asking the helper only for an app it
+  couldn't move itself.
 - `LargeFileTests`: only what nothing else lists (dot folders, folded
   dependencies, git-tracked files, other items and vault chunks left out), a
   sharded model as one folder, installers naming their app.

@@ -330,7 +330,9 @@ own folder (`com.microsoft`, say) is never taken for one of its apps.
   as if you dragged them to the Trash. The first time, macOS also asks whether
   SuckMyDisk may control Finder. While Finder waits for your answer, the Clean
   Up page says so under the item; with no answer in two minutes the item
-  fails and the app stays where it is.
+  fails and the app stays where it is. With
+  [the helper](#uninstalling-without-a-password) on there is no dialog, and
+  this warning is not shown.
 - the app installed components for every user (launch daemons, privileged
   helpers in `/Library`). Uninstalling here leaves them; use the app's own
   uninstaller if it has one.
@@ -345,6 +347,32 @@ folders), since "not running" is the check that matters for an app and
 everything goes to the Trash or is rebuilt. If a folder disappeared since the
 scan (an app tidying its own caches), the rest still goes; if the app itself is
 gone, the item is skipped.
+
+#### Uninstalling without a password
+
+Apps from the App Store or an installer belong to the system, so every time
+one goes to the Trash, Finder asks for an administrator password. To be asked
+only once, open **Settings** (⌘,) and turn on **Uninstall system apps without
+a password**. macOS opens System Settings → General → Login Items &
+Extensions; allow SuckMyDisk there (this is the one time it asks for your
+password or Touch ID). Back in SuckMyDisk the switch stays on, and from then
+on such an app goes to the Trash like any other.
+
+What you allowed is a small helper inside SuckMyDisk that macOS runs with
+administrator rights. It is kept as small as it can be:
+
+- It does one thing: move an app that is directly in the Applications folder
+  (or one folder down) to your own Trash. Not Utilities, not anything macOS
+  protects, not an app that is running, and not SuckMyDisk.
+- It only answers this copy of SuckMyDisk, checked by its signature, and only
+  for an administrator account, as Finder would.
+- It runs only while SuckMyDisk is uninstalling something and quits half a
+  minute later.
+- If it can't move an app, SuckMyDisk asks Finder as before, and the journal
+  says why.
+
+Turn it off with the same switch, or in System Settings. Only builds
+downloaded from GitHub have the helper, and `smd` doesn't use it.
 
 ### App data
 
@@ -621,7 +649,9 @@ run lists every data folder that would go and the warnings. Like
 [safety rule](#safety-rules) still applies: an app that is running is
 skipped, naming the process. If an App Store app needs Finder and Finder can't
 be reached (over SSH, say), the item fails with a note to drag the app to the
-Trash yourself. Finder gets two minutes for its password dialog. Ctrl-C stops
+Trash yourself. Finder gets two minutes for its password dialog. `smd` always
+goes through Finder: [the helper](#uninstalling-without-a-password) only
+answers the app. Ctrl-C stops
 the run the way the app's **Stop** does: the running step is ended, the item
 is reported as stopped and the rest is not run; a second Ctrl-C quits at once.
 
@@ -731,7 +761,9 @@ These apply to the app and the CLI alike, and no recognizer can override them.
   ever when you tick them; never preselected.
 - Uninstalling moves the app and its data to the Trash. An app that belongs to
   the system (App Store, installers) is moved by Finder, which asks for your
-  password.
+  password, or by [the helper](#uninstalling-without-a-password) if you turned
+  it on. The helper moves nothing but an app in the Applications folder, and
+  only into your own Trash.
 - When a tool has its own cleanup command, that command runs instead.
 - App data under App data is never deleted; you get instructions. Under Apps,
   an app's data goes only with the whole app, to the Trash, or as its caches.
@@ -790,7 +822,8 @@ preferences.
 
 ## Uninstalling
 
-1. Quit SuckMyDisk.
+1. If you turned on [the helper](#uninstalling-without-a-password), turn it
+   off in Settings. Then quit SuckMyDisk.
 2. Delete `/Applications/SuckMyDisk.app`, and `smd` from wherever you put it.
 3. Delete its data:
 

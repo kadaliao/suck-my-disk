@@ -31,6 +31,13 @@ cp "$(swift build "${SWIFT_ARGS[@]}" --show-bin-path)/smd" "$STAGE/smd"
 codesign --force --options runtime --timestamp --sign "$IDENTITY" "$STAGE/smd"
 
 codesign --verify --deep --strict "$STAGE/SuckMyDisk.app"
+# The app only talks to a helper with this identifier and team, and the helper only to the app:
+# a build where they don't match would fall back to Finder's password dialog without a word.
+TEAM=$(codesign -dv "$STAGE/SuckMyDisk.app" 2>&1 | sed -nE 's/^TeamIdentifier=//p')
+HELPER="$STAGE/SuckMyDisk.app/Contents/MacOS/com.kadaliao.SuckMyDisk.helper"
+codesign --verify --strict -R="identifier \"com.kadaliao.SuckMyDisk.helper\" and anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$HELPER"
+codesign --verify --strict -R="identifier \"com.kadaliao.SuckMyDisk\" and anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$STAGE/SuckMyDisk.app"
+plutil -lint -s "$STAGE/SuckMyDisk.app/Contents/Library/LaunchDaemons/com.kadaliao.SuckMyDisk.helper.plist"
 codesign --verify --strict "$STAGE/smd"
 
 if [ -n "${NOTARY_PROFILE:-}" ]; then

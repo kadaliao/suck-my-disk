@@ -8,6 +8,7 @@ import Update
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static var model: AppModel?
     @MainActor static var updater: Updater?
+    @MainActor static var helper: Helper?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Before any window shows. `--snapshot-appearance` overrides it later.
@@ -23,6 +24,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Back from System Settings, where the helper is allowed or turned off.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        MainActor.assumeIsolated { Self.helper?.refresh() }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
             Self.model?.saveNow()
@@ -36,6 +42,7 @@ struct SuckMyDiskApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model: AppModel
     @State private var updater: Updater
+    @State private var helper: Helper
     /// Reopened by an update while its window was closed: stay in the menu bar.
     private let hidden = CommandLine.arguments.contains("--hidden")
 
@@ -49,6 +56,9 @@ struct SuckMyDiskApp: App {
         let u = Updater(enabled: !staged)
         _updater = State(initialValue: u)
         AppDelegate.updater = u
+        let h = Helper(enabled: !staged)
+        _helper = State(initialValue: h)
+        AppDelegate.helper = h
     }
 
     var body: some Scene {
@@ -56,6 +66,7 @@ struct SuckMyDiskApp: App {
             RootView()
                 .environment(model)
                 .environment(updater)
+                .environment(helper)
                 .frame(minWidth: 960, minHeight: 640)
         }
         .defaultSize(width: 1180, height: 760)
@@ -74,11 +85,11 @@ struct SuckMyDiskApp: App {
         }
 
         Settings {
-            SettingsView().environment(updater)
+            SettingsView().environment(updater).environment(helper)
         }
 
         MenuBarExtra {
-            MenuBarPanel().environment(model).environment(updater)
+            MenuBarPanel().environment(model).environment(updater).environment(helper)
         } label: {
             Label(Fmt.bytes(model.volume.free), systemImage: "internaldrive")
         }

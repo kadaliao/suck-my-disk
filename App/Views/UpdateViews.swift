@@ -1,4 +1,5 @@
 import DiskIndex
+import ServiceManagement
 import SwiftUI
 import Update
 
@@ -107,6 +108,7 @@ struct UpdateMenuRow: View {
 
 struct SettingsView: View {
     @Environment(Updater.self) private var updater
+    @Environment(Helper.self) private var helper
     @AppStorage(Appearance.key) private var appearance = Appearance.system
     @State private var language = Language.saved
 
@@ -136,6 +138,30 @@ struct SettingsView: View {
             }
             .onChange(of: appearance) { Appearance.apply(appearance) }
             .onChange(of: language) { Language.save(language) }
+
+            SwiftUI.Section {
+                Toggle(L("卸载系统应用时不用输密码", "Uninstall system apps without a password"), isOn: helperOn)
+                if helper.state == .needsApproval {
+                    HStack {
+                        Text(L("还差一步：在系统设置的“登录项与扩展”里允许 SuckMyDisk。", "One more step: allow SuckMyDisk in System Settings, under Login Items & Extensions."))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button(L("打开系统设置", "Open System Settings")) { SMAppService.openSystemSettingsLoginItems() }
+                    }
+                }
+                if let problem = helper.problem {
+                    Label(problem, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                }
+            } header: {
+                Text(L("卸载", "Uninstalling"))
+            } footer: {
+                Text(helperFooter).font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(!helper.available)
+            .onAppear { helper.refresh() }
 
             SwiftUI.Section {
                 Toggle(L("自动检查更新", "Check for updates automatically"), isOn: $updater.checksAutomatically)
@@ -172,6 +198,18 @@ struct SettingsView: View {
         } catch {
             NSAlert(error: error).runModal()
         }
+    }
+
+    private var helperOn: Binding<Bool> {
+        Binding(get: { helper.state != .off }, set: { $0 ? helper.turnOn() : helper.turnOff() })
+    }
+
+    private var helperFooter: String {
+        guard helper.available else {
+            return L("只有从 GitHub Releases 下载的正式版本带这个助手。", "Only release builds downloaded from GitHub have this helper.")
+        }
+        return L("App Store 和安装器装的应用属于系统，移到废纸篓要管理员密码。打开后，SuckMyDisk 会装一个以管理员权限运行的小助手，macOS 只在这时请你确认一次，之后卸载不再弹密码框。助手只做一件事：把“应用程序”文件夹里的应用移到你的废纸篓，而且只听这份 SuckMyDisk 的；随时可以在这里或系统设置里关掉。",
+                 "Apps from the App Store or an installer belong to the system, so moving them to the Trash takes an administrator password. Turned on, SuckMyDisk installs a small helper that runs with administrator rights; macOS asks you to allow it once, and uninstalling no longer brings up a password dialog. The helper does one thing: move apps in the Applications folder to your Trash, and only when this copy of SuckMyDisk asks. Turn it off here or in System Settings at any time.")
     }
 
     private var footer: String {

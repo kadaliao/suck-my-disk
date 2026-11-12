@@ -20,10 +20,23 @@ targets:
   SuckMyDisk:
     type: application
     platform: macOS
-    sources: [App]
+    sources:
+      - App
+      # The helper's launchd job, where SMAppService looks for it.
+      - path: Helper/com.kadaliao.SuckMyDisk.helper.plist
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchDaemons
     dependencies:
       - package: DiskCore
         product: DiskCore
+      # Runs as root once the person turns it on in Settings; next to the app's own program.
+      - target: SuckMyDiskHelper
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kadaliao.SuckMyDisk
@@ -35,3 +48,24 @@ targets:
         INFOPLIST_KEY_NSAppleEventsUsageDescription: "SuckMyDisk asks Finder to empty the Trash, and to move apps that belong to the system to the Trash when you uninstall them."
         ENABLE_APP_SANDBOX: NO
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: ""
+  SuckMyDiskHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Helper
+        excludes: ["*.plist"]
+    dependencies:
+      - package: DiskCore
+        product: Privileged
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kadaliao.SuckMyDisk.helper
+        PRODUCT_NAME: com.kadaliao.SuckMyDisk.helper
+        SKIP_INSTALL: YES
+        # An Info.plist inside the program: its bundle id becomes the signing identifier the app
+        # checks. Without it codesign makes one up from the file name.
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        INFOPLIST_KEY_CFBundleDisplayName: SuckMyDisk Helper
+        # Xcode gives a command-line tool an application-identifier entitlement; the helper has none.
+        ENTITLEMENTS_REQUIRED: NO

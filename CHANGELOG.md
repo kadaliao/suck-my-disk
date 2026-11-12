@@ -8,6 +8,19 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Uninstall system apps without a password.** Apps from the App Store or an
+  installer belong to the system, so Finder asked for an administrator
+  password every time one was uninstalled. A new switch in Settings installs
+  a small helper that runs with administrator rights: macOS asks you to allow
+  it once (System Settings → Login Items & Extensions), and after that such
+  apps go to the Trash like any other. The helper does one thing, moving an
+  app in the Applications folder to your own Trash, and answers only this
+  copy of SuckMyDisk (checked by signature) for an administrator account. It
+  is off until you turn it on; if it can't move an app, Finder is asked as
+  before. `smd` keeps using Finder.
+
 ### Fixed
 
 - Uninstalling an app that belongs to the system (App Store, installers)

@@ -2,6 +2,7 @@ import DiskIndex
 import Foundation
 import Observation
 import OSLog
+import Privileged
 import Recognizers
 import Reclaim
 import SwiftUI
@@ -655,6 +656,9 @@ final class AppModel {
         var doneIDs: Set<String> = []
         let store = try? Store()
         let chosen = userOn   // ticked by hand, not preselected
+        // With the helper on, an app that belongs to the system goes without Finder's password dialog.
+        let elevate: (@Sendable (String) -> String?)?
+        if Helper.isOn { elevate = { HelperClient.trashApp($0) } } else { elevate = nil }
         for (n, item) in items.enumerated() {
             if run.stopping { break }
             phase = .cleaning(current: item.label, done: n, total: items.count)
@@ -663,7 +667,7 @@ final class AppModel {
             let work = Task.detached(priority: .userInitiated) {
                 Executor(store: store, chosen: chosen, log: { _ in },
                          note: { text in Task { @MainActor in run.note(text, row: n) } },
-                         isCancelled: { Task.isCancelled }).run([item]).first
+                         isCancelled: { Task.isCancelled }, elevate: elevate).run([item]).first
             }
             run.interrupt = { work.cancel() }
             let outcome = await work.value

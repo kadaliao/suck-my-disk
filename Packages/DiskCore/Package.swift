@@ -5,7 +5,8 @@ let package = Package(
     name: "DiskCore",
     platforms: [.macOS("26.0")],
     products: [
-        .library(name: "DiskCore", targets: ["DiskIndex", "Insights", "Recognizers", "Reclaim", "Update"]),
+        .library(name: "DiskCore", targets: ["DiskIndex", "Insights", "Recognizers", "Reclaim", "Update", "Privileged"]),
+        .library(name: "Privileged", targets: ["Privileged"]),
         .executable(name: "smd", targets: ["smd"]),
     ],
     targets: [
@@ -15,10 +16,12 @@ let package = Package(
         .target(name: "Recognizers", dependencies: ["DiskIndex", "Insights"]),
         .target(name: "Reclaim", dependencies: ["DiskIndex", "Recognizers"]),
         .target(name: "Update", dependencies: ["DiskIndex"]),
+        // What the root helper is made of: it depends on nothing else here.
+        .target(name: "Privileged"),
         .executableTarget(name: "smd", dependencies: ["DiskIndex", "Insights", "Recognizers", "Reclaim"]),
         .testTarget(
             name: "DiskCoreTests",
-            dependencies: ["CFastScan", "DiskIndex", "Insights", "Recognizers", "Reclaim", "Update"]
+            dependencies: ["CFastScan", "DiskIndex", "Insights", "Recognizers", "Reclaim", "Update", "Privileged"]
         ),
     ]
 )

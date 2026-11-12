@@ -198,7 +198,17 @@ struct ThingRow: View {
 
 struct ItemRow: View {
     @Environment(AppModel.self) private var model
+    @Environment(Helper.self) private var helper
     var item: ReclaimItem
+
+    /// The password warning goes once the helper is on, and points to Settings while it is off.
+    private var warnings: [String] {
+        item.warnings.compactMap { w in
+            guard w == AppRecognizer.passwordWarning else { return w }
+            if helper.state == .on { return nil }
+            return helper.available ? w + L("；在设置里可以改成只确认一次", "; Settings can make that a one-time approval") : w
+        }
+    }
 
     var body: some View {
         let on = model.selection.contains(item.id)
@@ -222,7 +232,7 @@ struct ItemRow: View {
                     Text(Fmt.home(p)).font(.caption2).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
                 }
                 if item.app != nil, item.action.isTrashOnly { AppDataList(item: item) }
-                ForEach(item.warnings, id: \.self) { w in
+                ForEach(warnings, id: \.self) { w in
                     Label(w, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(.orange).labelStyle(.titleAndIcon)
                 }

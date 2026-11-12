@@ -24,6 +24,11 @@ public final class Executor {
     let note: ((String) -> Void)?
     /// Asked before every step and while a command runs: true stops the run there.
     let isCancelled: () -> Bool
+    /// Moves an app that belongs to the system to the Trash without asking for a password
+    /// (the app's helper); returns nil when it did, or why it couldn't. Nil: there is none.
+    let elevate: ((String) -> String?)?
+    /// Things worth keeping in the journal about the current item, whatever its outcome.
+    private var remarks: [String] = []
     /// Rows the current item's `.erase` actions removed.
     private var erased = 0
     /// The current item was cut short by `isCancelled`, after `finished` of its steps.
@@ -37,13 +42,15 @@ public final class Executor {
     public init(store: Store?, force: Bool = false, chosen: Set<String> = [],
                 log: @escaping (String) -> Void = { print($0) },
                 note: ((String) -> Void)? = nil,
-                isCancelled: @escaping () -> Bool = { false }) {
+                isCancelled: @escaping () -> Bool = { false },
+                elevate: ((String) -> String?)? = nil) {
         self.store = store
         self.force = force
         self.chosen = chosen
         self.log = log
         self.note = note
         self.isCancelled = isCancelled
+        self.elevate = elevate
     }
 
     /// Items whose turn hadn't come when the run was stopped have no outcome.
@@ -184,6 +191,7 @@ public final class Executor {
         erased = 0
         stopped = false
         finished = 0
+        remarks = []
         var error = perform(item.action)
         let after = VolumeInfo.freeBytes(disk)
         // Say so when part of the item already went: an app in the Trash with its data still in place.
@@ -192,6 +200,7 @@ public final class Executor {
         }
         if erased > 0 { detail.append(L("清除了 \(erased) 条记录", "erased \(erased) records")) }
         if let error { detail.append(error) }
+        detail += remarks
         return finish(item, error == nil ? .done : stopped ? .stopped : .failed, Int64(after) - Int64(before),
                       error ?? "", before: before, after: after, detail: detail.joined(separator: "\n"))
     }
@@ -232,6 +241,17 @@ public final class Executor {
                 // An app installed by the App Store or an installer belongs to root: Finder moves it,
                 // asking for an administrator's password as when you drag it to the Trash.
                 guard p.hasSuffix(".app") else { return "\(error.localizedDescription)" }
+                // The helper moves it without a password. If it can't, Finder is still asked.
+                if let elevate {
+                    log("  helper  " + Fmt.home(p))
+                    if let why = elevate(p) {
+                        log("  helper: " + why)
+                        remarks.append("helper: " + why)
+                    } else if !Self.exists(p) {
+                        return nil
+                    }
+                    if isCancelled() { return halt() }
+                }
                 log("  finder  " + Fmt.home(p))
                 let waiting = L("正在请访达把它移到废纸篓：访达可能会要管理员密码，或者先问要不要允许控制访达",
                                 "Asking Finder to move it to the Trash: Finder may ask for an administrator password, or first for permission to control Finder")

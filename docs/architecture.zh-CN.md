@@ -11,6 +11,7 @@ App/                          SwiftUI app (macOS 26, Liquid Glass)
   SuckMyDiskApp.swift         window, menu bar item, Settings, ⌘R
   AppModel.swift              state: index, live loop, report, selection, cleanup
   Updater.swift               self-update schedule: when to check, download, install, relaunch
+  Helper.swift                turns the root helper on and off (SMAppService), shows its state
   Snapshotter.swift           --snapshot mode: renders every section to PNG
   Demo.swift                  --demo mode: made-up data for screenshots and trying the app
   Views/                      Overview, Category (reclaim lists), Treemap, Timeline, Clean Up page, shared components
@@ -22,8 +23,10 @@ Packages/DiskCore/            Swift package: the engine and the smd CLI
   Sources/Recognizers/        projects, frames, dev caches, models, installed apps, app data, system; report and planner
   Sources/Reclaim/            executor: re-checks guards, acts, writes the journal
   Sources/Update/             self-update: GitHub release, checksum and signature checks, swap, relaunch
+  Sources/Privileged/         what the root helper does and how the app reaches it (no other module in it)
   Sources/smd/                command line
   Tests/DiskCoreTests/        Swift Testing suites
+Helper/                       the root helper's program and launchd job (built into the app)
 scripts/                      release, icon and screenshot tooling
 project.yml                   XcodeGen spec for the app (the .xcodeproj is generated, not committed)
 ```
@@ -34,6 +37,8 @@ project.yml                   XcodeGen spec for the app (the .xcodeproj is gener
 CFastScan ← DiskIndex ← Insights ← Recognizers ← Reclaim
                 ↑                                   ↑
                 Update (app only)    smd and the app use all of them
+
+Privileged stands alone: the app and the helper use it, smd doesn't
 ```
 
 ## 数据流
@@ -133,7 +138,7 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 
 `.erase` 动作要求数据库仍是普通文件、没有正在运行的程序在命令行里提到它；然后 `ForeignDB.erase` 以读写方式打开，不等待地执行 `BEGIN EXCLUSIVE`（浏览器还占着就让这一项失败，什么都不改），打开 `secure_delete`，执行各条语句（这个版本的浏览器没有的表，对应语句跳过；其他错误整体回滚），提交后再 `VACUUM`。清除的行数写进日志。
 
-然后才动手：删除用 `removefile`，进废纸篓用 `FileManager.trashItem`，工具命令通过 `Shell` 运行。`trashItem` 移不动的 `.app`（归 root 所有，App Store 和安装器装的都是这样）交给访达，通过 `osascript` 来移，访达会像拖进废纸篓时一样要管理员密码。删 Python 虚拟环境之前，会先记下 `pyvenv.cfg` 和一份 `pip freeze`。执行前后各量一次可用空间，所有结果都写进日志。
+然后才动手：删除用 `removefile`，进废纸篓用 `FileManager.trashItem`，工具命令通过 `Shell` 运行。`trashItem` 移不动的 `.app`（归 root 所有，App Store 和安装器装的都是这样）交给访达，通过 `osascript` 来移，访达会像拖进废纸篓时一样要管理员密码。[卸载助手](#卸载助手privilegedhelper)打开时，App 会给执行器一个 `elevate` 闭包：先试它，不成再找访达（原因写进清理记录的详情）。删 Python 虚拟环境之前，会先记下 `pyvenv.cfg` 和一份 `pip freeze`。执行前后各量一次可用空间，所有结果都写进日志。
 
 ## 存储
 
@@ -155,6 +160,19 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 清理列表是 `CategoryView`，每个分区一个（`.id(section)`，所以每个列表都会展开自己的前几组）。「应用」有几处不同：侧边栏、卡片和标题显示应用占的空间，而不是「可以腾出」（把所有应用都卸载不算一个计划）；概览的「等你决定」、时间线和容量条都不算它（和应用数据、应用程序重叠）；每一行显示应用图标；「卸载」项下面用树里的大小列出它的数据文件夹（`AppDataList`）。清理确认窗口把卸载单独分成一组。
 
 `--demo` 用 `Demo.swift` 里的虚构数据代替磁盘：一份报告；一份用 `ScanTree.synthetic` 按文件夹大小清单搭出来的索引（先用 `sm_tree_create` 建一棵空树，再通过实时更新的补丁接口填进去，全程不碰磁盘）；两周的时间线；磁盘容量数字；虚构的应用（图标用首字母方块，不会显示任何真实应用的图标）；以及一块虚构的外接磁盘（「Studio SSD」）。这时 `AppModel` 会跳过重新扫描和保存，「清理」只是把条目从列表里拿掉，演示数据永远不会交给执行器。`scripts/doc-screenshots.sh` 用演示模式运行 `snapshots.sh`，生成 `docs/images` 里的截图。
+
+## 卸载助手（`Privileged`、`Helper`）
+
+归 root 所有的应用只有 root 移得动。为了不用每次都过访达的密码框，可以一次性打开一个助手：它是放在 App 包里的 launchd 守护进程（`Contents/MacOS/com.kadaliao.SuckMyDisk.helper`，任务描述在 `Contents/Library/LaunchDaemons`），由 `App/Helper.swift` 用 `SMAppService.daemon` 注册，再由用户在系统设置里允许。包外面不放任何东西，所以更新 App 的同时也就更新了助手。
+
+它是 root，所以做得很小，而且不相信收到的任何东西：
+
+- **谁能调用。** 监听端设了 `setConnectionCodeSigningRequirement`：标识符 `com.kadaliao.SuckMyDisk`、Apple 根证书，以及给助手自己签名的那个团队（从它自己的签名里读，所以 fork 出来的构建信任的是 fork 的 App）。没有团队签名的助手拒绝运行。App 这一端也设了对应的要求。用户取自连接本身（`effectiveUserIdentifier`），而且必须在 `admin` 组里。
+- **它做什么。** 只有一条消息 `trashApp(path)`，由 `AppMover` 处理：路径必须是 `/Applications/<名字>.app` 或往下一层（不能是「实用工具」，不能在别的包里面，不能有 `.`、`..` 或空的部分）；它必须是一个真的文件夹，有 bundle id，不受 SIP 保护，不是 SuckMyDisk，也没有进程从里面运行（用 `proc_pidpath` 查；不启动子进程，所以不会以 root 身份去 PATH 里找程序）。废纸篓必须是调用者自己的真文件夹，并且在同一个卷上。
+- **移动** 只是一次 `renameatx_np`，带 `RENAME_EXCL | RENAME_NOFOLLOW_ANY`：从不覆盖已有的东西，两边路径上只要有一段是符号链接就失败，所以检查之后再偷换也改不了去向。
+- **生命周期。** launchd 按需启动（`MachServices`），空闲 30 秒自己退出。`hello` 返回 `Privileged.version`；更新之前留下来的旧助手会被要求 `quit`，由新的程序来回答。
+
+`smd` 不用助手（它的签名不是 App 的），演示、截图和非正式构建从不注册它。
 
 ## 自动更新（`Update`、`Updater`）
 
@@ -183,6 +201,7 @@ App 和命令行里所有给用户看的文字，都通过 `Fmt.swift` 里的 `L
 - `AccountingTests`：同时释放 uv 缓存和 `.venv`。
 - `RecognizerTests`：项目产物和恢复命令、活跃项目不预选、外接磁盘上的项目（不含盘上的点文件夹）、帧只和自己的视频配对、npx 的包、渲染帧序列和相机连拍的区分。
 - `AppTests`：列出哪些应用、哪个文件夹归哪个应用（后缀、带团队 ID 的群组容器、厂商文件夹和通用名字不算）、Homebrew 和系统组件的警告、正在运行的应用不动（被挪到别处运行的副本也算）、亲手勾的应用条目和 7 天规则、应用已经不在时如实报告、公共文件夹受保护。
+- `PrivilegedTests`：以普通用户身份在临时文件夹里检验助手的规则：哪些路径算「应用程序」文件夹里的应用、该拒绝的都拒绝（非管理员、正在运行的应用、SuckMyDisk 自己、不属于调用者的废纸篓）、两边都不跟随符号链接、不覆盖废纸篓里已有的东西，以及执行器只为自己移不动的应用去找助手。
 - `LargeFileTests`：只列别处没列出的（点文件夹、折叠的依赖、git 跟踪的文件、别的条目和保险库分块都不算）、拆成几片的模型按一个文件夹算、安装包认出对应的应用。
 - `BrowserTests`：Chromium 用户资料逐项清除（下载记录、同步记录、银行卡和搜索引擎保留）、被占着的数据库不动、正在运行的浏览器不动、Firefox 清浏览记录保留书签、报告里的 erase 等级。
 - `SafetyTests`：受保护位置、被包含的项、执行器拒绝受保护路径和 git 跟踪的路径、正在运行的程序在用的文件、7 天规则和什么情况下不受它限制、uv 不再干等别的 uv 进程、Node 脚本在 App 的精简 PATH 下也能找到 `node`。
