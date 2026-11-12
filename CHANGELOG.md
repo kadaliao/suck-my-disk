@@ -8,6 +8,18 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Uninstalling an app that belongs to the system (App Store, installers)
+  could leave Clean Up stuck with no way out but quitting: SuckMyDisk waited
+  up to 10 minutes for Finder's password dialog without saying so, and Stop
+  was greyed out on the last item and could not interrupt the one running.
+  The page now says when Finder is waiting for you, the wait is 2 minutes,
+  and **Stop** is always available and interrupts the running item (a cleanup
+  command or the wait for Finder is ended; what already went stays gone).
+  `smd reclaim` and `smd uninstall` do the same on Ctrl-C, and the journal
+  records such an item as `stopped`.
+
 ## [0.6.1] - 2026-11-10
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and

@@ -112,6 +112,8 @@ final class CleanRun {
         /// The group it is in, shown for items without a path of their own ("Cookie" of which browser).
         var group: String?
         var state: State = .waiting
+        /// What the running item waits for, when that is the person (Finder asking for a password).
+        var note: String?
         var id: String { item.id }
     }
 
@@ -124,8 +126,12 @@ final class CleanRun {
     /// Measured from the volume's free space, not estimated. It only grows, so other
     /// programs writing meanwhile don't make it jump back.
     private(set) var freed: UInt64 = 0
-    /// The running item finishes; the rest don't start.
-    var stopping = false
+    /// The running item is cut short at its next step; the rest don't start.
+    private(set) var stopping = false
+    /// Interrupts the item that is running.
+    var interrupt: (() -> Void)?
+    /// An item was cut short, so the run ended as stopped even with nothing left to start.
+    var interrupted = false
     private(set) var finishedAt: Date?
 
     init(items: [ReclaimItem], things: [Thing], diskName: String?) {
@@ -155,6 +161,16 @@ final class CleanRun {
 
     /// Demo mode: nothing is measured.
     func add(_ bytes: UInt64) { freed += bytes }
+
+    /// Arrives a moment after the executor said it, so only a row still running takes it.
+    func note(_ text: String, row n: Int) {
+        if rows[n].state == .running { rows[n].note = text }
+    }
+
+    func stop() {
+        stopping = true
+        interrupt?()
+    }
 
     func finish() {
         for i in rows.indices where rows[i].state == .waiting { rows[i].state = .notRun }
@@ -643,9 +659,18 @@ final class AppModel {
             if run.stopping { break }
             phase = .cleaning(current: item.label, done: n, total: items.count)
             run.rows[n].state = .running
-            let outcome = await Task.detached(priority: .userInitiated) {
-                Executor(store: store, chosen: chosen, log: { _ in }).run([item])[0]
-            }.value
+            // Stop cancels this task: the executor sees it before its next step and ends a running command.
+            let work = Task.detached(priority: .userInitiated) {
+                Executor(store: store, chosen: chosen, log: { _ in },
+                         note: { text in Task { @MainActor in run.note(text, row: n) } },
+                         isCancelled: { Task.isCancelled }).run([item]).first
+            }
+            run.interrupt = { work.cancel() }
+            let outcome = await work.value
+            run.interrupt = nil
+            run.rows[n].note = nil
+            // Stopped before it began: it counts with the items that never ran.
+            guard let outcome else { run.rows[n].state = .waiting; break }
             switch outcome.status {
             case .done:
                 run.rows[n].state = .done
@@ -653,6 +678,9 @@ final class AppModel {
                 doneIDs.formUnion(item.covers)
             case .skipped: run.rows[n].state = .skipped(outcome.message)
             case .failed: run.rows[n].state = .failed(outcome.message)
+            case .stopped:
+                run.rows[n].state = .skipped(outcome.message)
+                run.interrupted = true
             }
         }
         meter.cancel()

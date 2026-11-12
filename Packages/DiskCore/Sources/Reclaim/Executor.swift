@@ -13,29 +13,47 @@ public final class Executor {
         public var message: String
     }
 
-    public enum Status: String, Sendable { case done, skipped, failed }
+    /// `stopped`: the run was stopped while this item was being done, so part of it may be left.
+    public enum Status: String, Sendable { case done, skipped, failed, stopped }
 
     let store: Store?
     let force: Bool
     let chosen: Set<String>
     let log: (String) -> Void
+    /// Told when a step waits for the person (Finder asking for a password); nil sends it to `log`.
+    let note: ((String) -> Void)?
+    /// Asked before every step and while a command runs: true stops the run there.
+    let isCancelled: () -> Bool
     /// Rows the current item's `.erase` actions removed.
     private var erased = 0
+    /// The current item was cut short by `isCancelled`, after `finished` of its steps.
+    private var stopped = false
+    private var finished = 0
 
     /// `force` lifts the 7-day rule for every item. `chosen` holds the items the person picked
     /// themselves: the regenerable ones among them skip the rule too, since they asked for it and
     /// nothing is lost that can't be rebuilt. Preselected items keep it, so anything that changed
     /// after the scan is left alone.
     public init(store: Store?, force: Bool = false, chosen: Set<String> = [],
-                log: @escaping (String) -> Void = { print($0) }) {
+                log: @escaping (String) -> Void = { print($0) },
+                note: ((String) -> Void)? = nil,
+                isCancelled: @escaping () -> Bool = { false }) {
         self.store = store
         self.force = force
         self.chosen = chosen
         self.log = log
+        self.note = note
+        self.isCancelled = isCancelled
     }
 
+    /// Items whose turn hadn't come when the run was stopped have no outcome.
     public func run(_ items: [ReclaimItem]) -> [Outcome] {
-        items.map(runOne)
+        var out: [Outcome] = []
+        for item in items {
+            if isCancelled() { break }
+            out.append(runOne(item))
+        }
+        return out
     }
 
     /// Paths an action would remove.
@@ -164,15 +182,37 @@ public final class Executor {
         let disk = Self.paths(item.action).lazy.compactMap(ExternalVolumes.mountPoint).first ?? Firmlinks.dataRoot
         let before = VolumeInfo.freeBytes(disk)
         erased = 0
-        let error = perform(item.action)
+        stopped = false
+        finished = 0
+        var error = perform(item.action)
         let after = VolumeInfo.freeBytes(disk)
+        // Say so when part of the item already went: an app in the Trash with its data still in place.
+        if stopped, finished > 0 {
+            error = L("已停止，这一项只做了一部分（\(finished) 步）", "stopped; only part of this item was done (\(finished) steps)")
+        }
         if erased > 0 { detail.append(L("清除了 \(erased) 条记录", "erased \(erased) records")) }
         if let error { detail.append(error) }
-        return finish(item, error == nil ? .done : .failed, Int64(after) - Int64(before),
+        return finish(item, error == nil ? .done : stopped ? .stopped : .failed, Int64(after) - Int64(before),
                       error ?? "", before: before, after: after, detail: detail.joined(separator: "\n"))
     }
 
+    private func halt() -> String {
+        stopped = true
+        return L("已停止", "stopped")
+    }
+
+    /// One action, unless the run was stopped; counts the steps that went through.
     func perform(_ a: ReclaimAction) -> String? {
+        if isCancelled() { return halt() }
+        let error = step(a)
+        switch a {
+        case .delete, .trash, .command, .erase: if error == nil { finished += 1 }
+        default: break
+        }
+        return error
+    }
+
+    private func step(_ a: ReclaimAction) -> String? {
         switch a {
         case .delete(let p):
             log("  rm  " + Fmt.home(p))
@@ -193,10 +233,15 @@ public final class Executor {
                 // asking for an administrator's password as when you drag it to the Trash.
                 guard p.hasSuffix(".app") else { return "\(error.localizedDescription)" }
                 log("  finder  " + Fmt.home(p))
+                let waiting = L("正在请访达把它移到废纸篓：访达可能会要管理员密码，或者先问要不要允许控制访达",
+                                "Asking Finder to move it to the Trash: Finder may ask for an administrator password, or first for permission to control Finder")
+                if let note { note(waiting) } else { log("  " + waiting) }
+                // Two minutes to answer Finder: after that nobody is at the dialog.
                 let r = Shell.run(["osascript", "-e", "on run argv", "-e",
                                    "tell application \"Finder\" to delete (POSIX file (item 1 of argv) as alias)",
-                                   "-e", "end run", p], timeout: 600)
+                                   "-e", "end run", p], timeout: 120, isCancelled: isCancelled)
                 if r.ok, !Self.exists(p) { return nil }
+                if isCancelled() { return halt() }
                 return L("\(error.localizedDescription)；交给访达也没成功，可以在访达里把它拖到废纸篓",
                          "\(error.localizedDescription); Finder couldn't move it either. Drag it to the Trash in Finder")
             }
@@ -204,7 +249,8 @@ public final class Executor {
             log("  $ " + argv.joined(separator: " "))
             // If a uv starts after the check above, give up on its lock in 30 s rather than 5 minutes.
             let env = Self.lockingTools.contains((argv[0] as NSString).lastPathComponent) ? ["UV_LOCK_TIMEOUT": "30"] : [:]
-            let r = Shell.run(argv, cwd: cwd, timeout: 3600, stream: true, env: env)
+            let r = Shell.run(argv, cwd: cwd, timeout: 3600, stream: true, env: env, isCancelled: isCancelled)
+            if !r.ok, isCancelled() { return halt() }
             return r.ok ? nil : "exit \(r.status): \(r.stderr.suffix(400).trimmingCharacters(in: .whitespacesAndNewlines))"
         case .erase(let db, let sql):
             log("  erase  " + Fmt.home(db))

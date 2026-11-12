@@ -37,10 +37,12 @@ public enum Shell {
     }
 
     /// Runs a command and captures output. Kills it after `timeout` seconds.
-    /// `env` adds to (or overrides) the inherited environment.
+    /// `env` adds to (or overrides) the inherited environment. `isCancelled` is polled while
+    /// the command runs; once true the command is stopped the same way as on a timeout.
     @discardableResult
     public static func run(_ argv: [String], cwd: String? = nil, timeout: TimeInterval = 60,
-                           stream: Bool = false, env extra: [String: String] = [:]) -> ShellResult {
+                           stream: Bool = false, env extra: [String: String] = [:],
+                           isCancelled: () -> Bool = { false }) -> ShellResult {
         guard let exe = which(argv[0]) else {
             return ShellResult(status: 127, stdout: "", stderr: "\(argv[0]): not found")
         }
@@ -72,7 +74,7 @@ public enum Shell {
         }
         let deadline = Date().addingTimeInterval(timeout)
         while p.isRunning {
-            if Date() > deadline { p.terminate(); break }
+            if Date() > deadline || isCancelled() { stop(p); break }
             Thread.sleep(forTimeInterval: 0.02)
         }
         p.waitUntilExit()
@@ -81,6 +83,15 @@ public enum Shell {
         outBuf.append(out.fileHandleForReading.readDataToEndOfFile())
         errBuf.append(err.fileHandleForReading.readDataToEndOfFile())
         return ShellResult(status: p.terminationStatus, stdout: outBuf.string, stderr: errBuf.string)
+    }
+
+    /// Asks the command to quit, and kills it if it hasn't two seconds later: a stopped run
+    /// must not keep waiting for a tool that ignores the request.
+    private static func stop(_ p: Process) {
+        p.terminate()
+        let patience = Date().addingTimeInterval(2)
+        while p.isRunning, Date() < patience { Thread.sleep(forTimeInterval: 0.02) }
+        if p.isRunning { kill(p.processIdentifier, SIGKILL) }
     }
 }
 
