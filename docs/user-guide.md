@@ -327,7 +327,10 @@ own folder (`com.microsoft`, say) is never taken for one of its apps.
 
 - Finder will ask for an administrator password: apps from the App Store or an
   installer belong to the system, so SuckMyDisk asks Finder to move them, just
-  as if you dragged them to the Trash.
+  as if you dragged them to the Trash. The first time, macOS also asks whether
+  SuckMyDisk may control Finder. While Finder waits for your answer, the Clean
+  Up page says so under the item; with no answer in two minutes the item
+  fails and the app stays where it is.
 - the app installed components for every user (launch daemons, privileged
   helpers in `/Library`). Uninstalling here leaves them; use the app's own
   uninstaller if it has one.
@@ -419,8 +422,10 @@ and the number in the middle is the space freed so far, measured from the
 volume's free space, not estimated. The list below shows whether each item is
 waiting, running, done, skipped or failed. Right before each one, every
 [safety rule](#safety-rules) is checked again; anything that fails is skipped
-with the reason. **Stop** finishes the item that is running and leaves the
-rest alone. When the run ends, the same page shows the result: how much was
+with the reason. **Stop** works at any moment: the item that is running is
+interrupted before its next step (a cleanup command or a wait for Finder's
+password dialog is ended), the rest is left alone, and what already went stays
+gone. When the run ends, the same page shows the result: how much was
 freed, what didn't go and why, and how long it took. Click **Done** to go back.
 
 Moved-to-Trash items still use space until you empty the Trash; the result
@@ -616,11 +621,13 @@ run lists every data folder that would go and the warnings. Like
 [safety rule](#safety-rules) still applies: an app that is running is
 skipped, naming the process. If an App Store app needs Finder and Finder can't
 be reached (over SSH, say), the item fails with a note to drag the app to the
-Trash yourself.
+Trash yourself. Finder gets two minutes for its password dialog. Ctrl-C stops
+the run the way the app's **Stop** does: the running step is ended, the item
+is reported as stopped and the rest is not run; a second Ctrl-C quits at once.
 
 ### `smd journal`
 
-The last 50 actions: time, result (`done`, `skipped`, `failed`), action, space
+The last 50 actions: time, result (`done`, `skipped`, `failed`, `stopped`), action, space
 freed, and item. The app's cleanups are recorded here too.
 
 ### `smd top`

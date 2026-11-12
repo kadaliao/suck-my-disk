@@ -256,6 +256,26 @@ func currentReport() async -> Report? {
     return await makeReport(rescan: args.has("rescan"))
 }
 
+/// Ctrl-C during a run: the first one stops it at the next step, so the item being done is
+/// reported and journaled instead of the process dying mid-item; a second one quits at once.
+final class StopOnInterrupt: @unchecked Sendable {
+    private let lock = NSLock()
+    private var asked = false
+    private let source = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
+
+    init() {
+        signal(SIGINT, SIG_IGN)
+        source.setEventHandler { [self] in
+            if requested { exit(130) }
+            lock.withLock { asked = true }
+            err(L("正在停止…（再按一次 Ctrl-C 立刻退出）", "Stopping… (Ctrl-C again quits at once)"))
+        }
+        source.resume()
+    }
+
+    var requested: Bool { lock.withLock { asked } }
+}
+
 /// `chosen`: items the person named with --select or --add.
 func runPlan(_ items: [ReclaimItem], execute: Bool, disk: ExternalVolume? = nil, chosen: Set<String> = []) {
     let total = items.reduce(UInt64(0)) { $0 + $1.estimate }
@@ -282,18 +302,24 @@ func runPlan(_ items: [ReclaimItem], execute: Bool, disk: ExternalVolume? = nil,
     }
     print("")
     let store = try? Store()
-    let ex = Executor(store: store, force: args.has("force"), chosen: chosen)
+    let stop = StopOnInterrupt()
+    let ex = Executor(store: store, force: args.has("force"), chosen: chosen, isCancelled: { stop.requested })
     let mount = disk?.path ?? Firmlinks.dataRoot
     let before = VolumeInfo.freeBytes(mount)
     var done = 0
-    for o in ex.run(items) {
+    let outcomes = ex.run(items)
+    for o in outcomes {
         switch o.status {
         case .done:
             done += 1
             print("  ✓ \(o.item.label)  " + L("实际腾出 \(Fmt.bytes(UInt64(max(0, o.freed))))", "freed \(Fmt.bytes(UInt64(max(0, o.freed))))"))
         case .skipped: print("  – \(o.item.label)  " + L("跳过：", "skipped: ") + o.message)
         case .failed: print("  ✗ \(o.item.label)  " + L("失败：", "failed: ") + o.message)
+        case .stopped: print("  ■ \(o.item.label)  " + o.message)
         }
+    }
+    if outcomes.count < items.count {
+        print("  ■ " + L("已停止，剩下 \(items.count - outcomes.count) 项没运行", "stopped; \(items.count - outcomes.count) items were not run"))
     }
     let after = VolumeInfo.freeBytes(mount)
     print("")

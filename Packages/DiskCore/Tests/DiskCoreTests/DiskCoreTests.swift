@@ -360,6 +360,14 @@ final class Fixture {
     }
 }
 
+/// A stop request that can be set from another thread.
+final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var on = false
+    func set() { lock.withLock { on = true } }
+    var isSet: Bool { lock.withLock { on } }
+}
+
 @Suite struct SafetyTests {
     @Test func deniedLocations() {
         let h = NSHomeDirectory()
@@ -450,6 +458,56 @@ final class Fixture {
         #expect(!FileManager.default.fileExists(atPath: f.path("p/target")))
         #expect(out[1].status == .skipped)
         #expect(FileManager.default.fileExists(atPath: f.path("mine/clip.mov")))
+    }
+
+    /// Stop reaches the command that is running, and nothing after it starts.
+    @Test func stopEndsTheRunningCommandAndTheRun() throws {
+        let f = try Fixture()
+        try f.file("p/target/x.bin", mb: 1)
+        let wait = ReclaimItem(id: "w", label: "wait", path: nil, bytes: 1, tier: .regenerable,
+                               action: .command(argv: ["sleep", "60"], cwd: nil), reason: "", preselected: true)
+        let build = ReclaimItem(id: "b", label: "target", path: f.path("p/target"), bytes: 1, tier: .regenerable,
+                                action: .delete(path: f.path("p/target")), reason: "", preselected: true)
+        let stop = Flag()
+        let started = Date()
+        // Stop as soon as the command is announced.
+        let out = Executor(store: nil, force: true, log: { if $0.contains("sleep") { stop.set() } },
+                           isCancelled: { stop.isSet }).run([wait, build])
+        #expect(Date().timeIntervalSince(started) < 10)
+        #expect(out.count == 1)
+        #expect(out[0].status == .stopped)
+        #expect(FileManager.default.fileExists(atPath: f.path("p/target/x.bin")))
+    }
+
+    /// Stopped halfway through an item: what was done stays done, the rest is untouched, and it is not reported as done.
+    @Test func stopInsideAnItemIsNotDone() throws {
+        let f = try Fixture()
+        try f.file("a/x.bin", mb: 1)
+        try f.file("b/x.bin", mb: 1)
+        let item = ReclaimItem(id: "c", label: "both", path: nil, bytes: 2, tier: .regenerable,
+                               action: .compound(actions: [.delete(path: f.path("a")), .command(argv: ["sleep", "60"], cwd: nil),
+                                                           .delete(path: f.path("b"))]),
+                               reason: "", preselected: true)
+        let stop = Flag()
+        let out = Executor(store: nil, force: true, log: { if $0.contains("sleep") { stop.set() } },
+                           isCancelled: { stop.isSet }).run([item])
+        #expect(out[0].status == .stopped)
+        #expect(!out[0].message.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: f.path("a")))
+        #expect(FileManager.default.fileExists(atPath: f.path("b/x.bin")))
+
+        // Stopped before the run began: nothing has an outcome, nothing is touched.
+        #expect(Executor(store: nil, force: true, log: { _ in }, isCancelled: { true }).run([item]).isEmpty)
+        #expect(FileManager.default.fileExists(atPath: f.path("b/x.bin")))
+    }
+
+    @Test func shellRunStopsWhenCancelled() {
+        let stop = Flag()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { stop.set() }
+        let started = Date()
+        let r = Shell.run(["sleep", "60"], isCancelled: { stop.isSet })
+        #expect(!r.ok)
+        #expect(Date().timeIntervalSince(started) < 10)
     }
 
     /// A long `uv run` holds the cache lock: say so at once instead of waiting 5 minutes for it.

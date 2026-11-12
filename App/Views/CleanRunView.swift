@@ -64,7 +64,7 @@ private struct CleanRunHeadline: View {
                 ?? L("正在准备…", "Getting ready…")
         }
         if run.done == 0 { return L("什么都没清理", "Nothing was cleaned") }
-        if run.notRun > 0 { return L("已停止", "Stopped") }
+        if run.notRun > 0 || run.interrupted { return L("已停止", "Stopped") }
         if run.failed > 0 { return L("清理完成，有 \(run.failed) 项没清掉", "Done, but \(run.failed) failed") }
         return L("清理完成", "All clean")
     }
@@ -74,7 +74,7 @@ private struct CleanRunHeadline: View {
             let n = min(run.settled + 1, run.rows.count)
             var s = L("第 \(n) 项，共 \(run.rows.count) 项", "Item \(n) of \(run.rows.count)")
             if let d = run.diskName { s += L(" · 「\(d)」", " · “\(d)”") }
-            if run.stopping { s += L(" · 做完这一项就停", " · stopping after this one") }
+            if run.stopping { s += L(" · 正在停下", " · stopping") }
             return s
         }
         var parts = [L("完成 \(run.done) 项", "\(run.done) done")]
@@ -101,13 +101,14 @@ private struct CleanRunButtons: View {
             .controlSize(.large)
             .keyboardShortcut(.defaultAction)
         } else {
-            Button { run.stopping = true } label: {
+            // Never disabled on the last item: that one may be waiting for Finder's password dialog.
+            Button { run.stop() } label: {
                 Text(run.stopping ? L("正在停止…", "Stopping…") : L("停止", "Stop")).frame(minWidth: 110)
             }
             .buttonStyle(.glass)
             .controlSize(.large)
-            .disabled(run.stopping || run.rows.count - run.settled <= 1)
-            .help(L("做完正在清理的这一项就停下，剩下的不动", "Finishes the item being cleaned, then leaves the rest alone"))
+            .disabled(run.stopping)
+            .help(L("马上停下：正在清理的这一项会被中断，剩下的不动", "Stops now: the item being cleaned is interrupted and the rest is left alone"))
         }
     }
 }
@@ -282,6 +283,12 @@ private struct CleanRunRow: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
+                }
+                if row.state == .running, let note = row.note {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let why = row.state.message {
                     Text(why)
