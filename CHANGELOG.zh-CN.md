@@ -6,6 +6,10 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.6.2] - 2026-11-12
+
+需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。0.5.0 及以后的版本会通过 App 内更新拿到这个版本。索引格式没变，升级后不用重新扫描。
+
 ### 修复
 
 - 卸载归系统所有的应用（App Store、安装器装的）时，清理页可能卡住，只能退出 SuckMyDisk：程序在等访达的密码框，最长等 10 分钟，界面上却什么都没说；只剩最后一项时「停止」是灰的，点了也停不下正在清理的那一项。现在访达在等你时页面会写明，最多等 2 分钟；**停止** 随时能点，会中断正在清理的这一项（正在跑的清理命令、对访达的等待都会结束，已经清掉的不会回来）。`smd reclaim` 和 `smd uninstall` 按 Ctrl-C 也是这样，清理记录里这样的条目记为 `stopped`。
@@ -179,7 +183,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.1...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.4...v0.6.0
 [0.5.4]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.3...v0.5.4
