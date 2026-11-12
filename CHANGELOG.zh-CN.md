@@ -6,6 +6,14 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.6.4] - 2026-11-12
+
+需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。0.5.0 及以后的版本会通过 App 内更新拿到这个版本。索引格式没变，升级后不用重新扫描。
+
+### 变更
+
+- App 和 `smd` 相比 0.6.3 没有变化。发版时的公证改用 App Store Connect API 密钥，不再用钥匙串配置，这是第一个这样构建的版本。
+
 ## [0.6.3] - 2026-11-12
 
 需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。0.5.0 及以后的版本会通过 App 内更新拿到这个版本。索引格式没变，升级后不用重新扫描。
@@ -199,7 +207,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.3...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.4...HEAD
+[0.6.4]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.0...v0.6.1
