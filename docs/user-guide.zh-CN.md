@@ -542,7 +542,7 @@ smd uninstall /Applications/Slack.app --keep-app --yes
 ### `smd journal`
 
 最近 50 条操作：时间、结果（`done`、`skipped`、`failed`、`stopped`）、操作、腾出的空间、条目。
-App 里的清理也会记在这里。
+App 里的清理也会记在这里。没清掉的条目，下一行写着原因；[卸载助手](#卸载时不用输密码)移不动、转给访达的应用也一样（以 `helper:` 开头的那一行）。
 
 ### `smd top`
 

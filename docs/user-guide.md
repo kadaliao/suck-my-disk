@@ -658,7 +658,10 @@ is reported as stopped and the rest is not run; a second Ctrl-C quits at once.
 ### `smd journal`
 
 The last 50 actions: time, result (`done`, `skipped`, `failed`, `stopped`), action, space
-freed, and item. The app's cleanups are recorded here too.
+freed, and item. The app's cleanups are recorded here too. An item that didn't
+go has the reason on the next line, and so does an app that
+[the helper](#uninstalling-without-a-password) passed on to Finder (a line
+starting with `helper:`).
 
 ### `smd top`
 

@@ -489,12 +489,18 @@ case "uninstall":
 
 case "journal":
     let store = try Store()
-    let rows = try store.query("SELECT ts, status, action, item_id, estimated, free_before, free_after, restore FROM journal ORDER BY ts DESC LIMIT 50")
+    let rows = try store.query("SELECT ts, status, action, item_id, estimated, free_before, free_after, restore, detail FROM journal ORDER BY ts DESC LIMIT 50")
     let f = DateFormatter()
     f.dateFormat = "MM-dd HH:mm"
     for r in rows {
         let freed = r[6].int - r[5].int
         print("\(f.string(from: Date(timeIntervalSince1970: r[0].real)))  \(r[1].text ?? "")  \(r[2].text ?? "")  \(Fmt.bytes(UInt64(max(0, freed))))  \(Fmt.home(r[3].text ?? ""))")
+        // Why an item didn't go, and why the helper passed an app on to Finder. A finished
+        // item's other details (what a venv contained) are long and stay in the database.
+        let lines = (r[8].text ?? "").split(separator: "\n").map(String.init)
+        for line in (r[1].text == "done" ? lines.filter { $0.hasPrefix("helper:") } : Array(lines.prefix(4))) {
+            print("             " + Fmt.home(line))
+        }
     }
 
 case "bench":

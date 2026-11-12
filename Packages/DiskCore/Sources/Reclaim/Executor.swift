@@ -245,8 +245,10 @@ public final class Executor {
                 if let elevate {
                     log("  helper  " + Fmt.home(p))
                     if let why = elevate(p) {
-                        log("  helper: " + why)
-                        remarks.append("helper: " + why)
+                        // A failed connection already names the helper.
+                        let line = why.hasPrefix("helper:") ? why : "helper: " + why
+                        log("  " + line)
+                        remarks.append(line)
                     } else if !Self.exists(p) {
                         return nil
                     }
