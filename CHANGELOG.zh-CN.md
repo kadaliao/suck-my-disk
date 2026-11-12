@@ -14,6 +14,9 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 - **勾上的就会清，不再有「7 天内改过」的拦截。** 以前清理时会跳过 7 天内改过的条目，提示「……改过，……之后才能清」，连默认勾好的 pip 缓存都清不掉：下载缓存每用一次就改一次，永远等不到那一天。现在「最近改过」只决定默认勾不勾（还在活跃的项目产物、刚渲染的帧不预选），你的文件 7 天内改过的会带一条提醒；勾上的条目一律照常处理。命令行的 `--force` 只管这一条规则，一并去掉了。
 - **卸载会先停掉应用留在后台的程序。** VPN、安全软件之类的应用会装开机自启的后台服务，应用关了它还在跑，你也没法手动退出；以前卸载会被跳过，提示「正在运行，先退出它」，卸载助手开着也没用。现在只有应用本身开着时才要你先退出；它留在后台的程序卸载时会自动停掉。以 root 运行的服务由卸载助手来停（设置里的「卸载系统应用时不用输密码」），`/Library/LaunchDaemons` 和 `/Library/LaunchAgents` 里指向这个应用的启动项文件跟着应用一起进废纸篓；没开助手时这一项会跳过，并写明去打开它。
+## [0.6.2] - 2026-11-12
+
+需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。0.5.0 及以后的版本会通过 App 内更新拿到这个版本。索引格式没变，升级后不用重新扫描。
 
 ### 修复
 
@@ -188,7 +191,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.1...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.4...v0.6.0
 [0.5.4]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.3...v0.5.4
