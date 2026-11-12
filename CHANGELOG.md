@@ -8,6 +8,12 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-11-12
+
+Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and
+notarized. Copies of 0.5.0 and later get this release through the in-app
+update. The index format is unchanged, so upgrading needs no rescan.
+
 ### Added
 
 - **Uninstall system apps without a password.** Apps from the App Store or an
@@ -41,6 +47,12 @@ All notable changes to SuckMyDisk. The format follows
   password), and the launch files in `/Library/LaunchDaemons` and
   `/Library/LaunchAgents` that point into the app go to the Trash with it;
   without the helper the item is skipped and says to turn it on.
+### Fixed
+
+- After a Clean Up run the button at the bottom could still say Stop, with no
+  Done, although the title already said the run had ended. Both buttons now
+  stay in place and the run only decides which one shows.
+
 ## [0.6.2] - 2026-11-12
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and
@@ -358,7 +370,8 @@ Developer ID and notarized.
   `smd reclaim` (dry run by default), `smd hibernate`, `smd wake`,
   `smd journal`.
 
-[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.5.4...v0.6.0
