@@ -22,7 +22,7 @@
      --apple-id <apple-id> --team-id <team-id>
    ```
 
-   它会要求输入 App 专用密码，然后把所有信息存进钥匙串。绝不要把凭据提交到仓库。
+   它会要求输入 App 专用密码，然后把所有信息存进钥匙串。绝不要把凭据提交到仓库。在 SSH 会话里，登录钥匙串不接受新的配置（报“User interaction is not allowed”）：加上 `--keychain <文件>` 把它存进一个单独的钥匙串文件，再用 `NOTARY_KEYCHAIN=<文件>` 把这个文件告诉发布脚本。
 3. `brew install xcodegen gh`，然后 `gh auth login`。
 
 ## 步骤

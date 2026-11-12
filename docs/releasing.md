@@ -30,7 +30,10 @@ place to change it.
    ```
 
    It asks for an app-specific password and stores everything in the
-   keychain. Never commit credentials.
+   keychain. Never commit credentials. In an SSH session the login keychain
+   refuses a new profile ("User interaction is not allowed"): add
+   `--keychain <file>` to store it in a keychain file of its own, and pass
+   that file to the release script as `NOTARY_KEYCHAIN=<file>`.
 3. `brew install xcodegen gh`, and `gh auth login`.
 
 ## Steps

@@ -4,11 +4,15 @@
 #   NOTARY_PROFILE=<notarytool keychain profile> scripts/release.sh
 #
 # Without NOTARY_PROFILE the build is signed but not notarized.
+# NOTARY_KEYCHAIN names the keychain file the profile is in, when it isn't the login keychain
+# (over SSH the login keychain can't take a new profile, so the profile lives in its own file).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION=$(sed -nE 's/^ *MARKETING_VERSION: "?([^"]+)"?$/\1/p' project.yml)
 IDENTITY="${SIGN_IDENTITY:-Developer ID Application: Xingyi Liao (HMDAVG9B8J)}"
+NOTARY=(--keychain-profile "${NOTARY_PROFILE:-}")
+if [ -n "${NOTARY_KEYCHAIN:-}" ]; then NOTARY+=(--keychain "$NOTARY_KEYCHAIN"); fi
 OUT=build/release
 STAGE="$OUT/stage"
 rm -rf "$OUT"
@@ -43,7 +47,7 @@ codesign --verify --strict "$STAGE/smd"
 if [ -n "${NOTARY_PROFILE:-}" ]; then
   echo "▸ notarize"
   ditto -c -k "$STAGE" "$OUT/notarize.zip"
-  xcrun notarytool submit "$OUT/notarize.zip" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun notarytool submit "$OUT/notarize.zip" "${NOTARY[@]}" --wait
   xcrun stapler staple "$STAGE/SuckMyDisk.app"
   spctl --assess --type execute "$STAGE/SuckMyDisk.app"
   rm "$OUT/notarize.zip"
@@ -59,7 +63,7 @@ hdiutil create -quiet -volname "SuckMyDisk $VERSION" -srcfolder "$OUT/dmg" -fs A
 rm -rf "$OUT/dmg"
 codesign --sign "$IDENTITY" --timestamp "$DMG"
 if [ -n "${NOTARY_PROFILE:-}" ]; then
-  xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun notarytool submit "$DMG" "${NOTARY[@]}" --wait
   xcrun stapler staple "$DMG"
   spctl --assess --type open --context context:primary-signature "$DMG"
 fi
