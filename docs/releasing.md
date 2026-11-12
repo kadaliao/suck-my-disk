@@ -22,7 +22,22 @@ place to change it.
 1. A **Developer ID Application** certificate in your login keychain. The
    script defaults to `Developer ID Application: Xingyi Liao (HMDAVG9B8J)`;
    set `SIGN_IDENTITY` to use another one (for example in a fork).
-2. A **notarytool keychain profile**:
+2. **Credentials for notarizing**, one of two kinds. Never commit either.
+
+   An **App Store Connect API key** (recommended: nothing is kept in a
+   keychain, so nothing can go missing from one). Create a team key in App
+   Store Connect → Users and Access → Integrations → App Store Connect API,
+   download its `.p8` file once, and note the Key ID and the Issuer ID shown
+   on that page. Put the three in `~/.appstoreconnect/notary.env`, which the
+   release script reads when no credentials are given on the command line:
+
+   ```sh
+   NOTARY_KEY="$HOME/.appstoreconnect/private_keys/AuthKey_<key-id>.p8"
+   NOTARY_KEY_ID="<key-id>"
+   NOTARY_ISSUER="<issuer-id>"
+   ```
+
+   Or a **notarytool keychain profile**:
 
    ```sh
    xcrun notarytool store-credentials <profile-name> \
@@ -30,7 +45,8 @@ place to change it.
    ```
 
    It asks for an app-specific password and stores everything in the
-   keychain. Never commit credentials. In an SSH session the login keychain
+   keychain; run the release script with `NOTARY_PROFILE=<profile-name>`. In
+   an SSH session the login keychain
    refuses a new profile ("User interaction is not allowed"): add
    `--keychain <file>` to store it in a keychain file of its own, and pass
    that file to the release script as `NOTARY_KEYCHAIN=<file>`.
@@ -53,15 +69,18 @@ place to change it.
 4. **Build, sign, notarize, package.**
 
    ```sh
-   NOTARY_PROFILE=<profile-name> scripts/release.sh
+   scripts/release.sh
    ```
+
+   It first checks that the notarizing credentials work, and stops if they
+   don't. `NOTARIZE=0` builds and signs without notarizing.
 
    This regenerates the Xcode project, builds the app (Release), builds `smd`
    as a universal binary (arm64 + x86_64), signs both with the hardened
    runtime, submits them for notarization and waits, staples the app, and
    checks it with `spctl`. It then builds the disk image (the app next to a
    link to Applications), signs, notarizes and staples that too, and deletes
-   the loose staging copy of the app. Without `NOTARY_PROFILE` everything is
+   the loose staging copy of the app. Without credentials everything is
    signed but not notarized; don't publish that.
 
    Output in `build/release/`:

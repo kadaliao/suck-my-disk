@@ -1,18 +1,42 @@
 #!/bin/bash
 # Build, sign, notarize and package a release into build/release/.
 #
-#   NOTARY_PROFILE=<notarytool keychain profile> scripts/release.sh
+#   scripts/release.sh
 #
-# Without NOTARY_PROFILE the build is signed but not notarized.
-# NOTARY_KEYCHAIN names the keychain file the profile is in, when it isn't the login keychain
-# (over SSH the login keychain can't take a new profile, so the profile lives in its own file).
+# Notarizing takes one of:
+#   - an App Store Connect API key: NOTARY_KEY (the .p8 file), NOTARY_KEY_ID and NOTARY_ISSUER.
+#     Nothing is kept in a keychain, so nothing can go missing from one. When none of the
+#     variables here is set they are read from ~/.appstoreconnect/notary.env, if it exists.
+#   - a notarytool keychain profile: NOTARY_PROFILE, with NOTARY_KEYCHAIN naming the keychain
+#     file it is in when that isn't the login keychain.
+# With neither, the build is signed but not notarized. NOTARIZE=0 says so on purpose.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION=$(sed -nE 's/^ *MARKETING_VERSION: "?([^"]+)"?$/\1/p' project.yml)
 IDENTITY="${SIGN_IDENTITY:-Developer ID Application: Xingyi Liao (HMDAVG9B8J)}"
-NOTARY=(--keychain-profile "${NOTARY_PROFILE:-}")
-if [ -n "${NOTARY_KEYCHAIN:-}" ]; then NOTARY+=(--keychain "$NOTARY_KEYCHAIN"); fi
+NOTARY_ENV="$HOME/.appstoreconnect/notary.env"
+if [ -z "${NOTARY_PROFILE:-}${NOTARY_KEY:-}" ] && [ "${NOTARIZE:-1}" != 0 ] && [ -r "$NOTARY_ENV" ]; then
+  # shellcheck disable=SC1090
+  . "$NOTARY_ENV"
+fi
+NOTARY=()
+if [ "${NOTARIZE:-1}" = 0 ]; then
+  :
+elif [ -n "${NOTARY_KEY:-}" ]; then
+  : "${NOTARY_KEY_ID:?NOTARY_KEY needs NOTARY_KEY_ID}" "${NOTARY_ISSUER:?NOTARY_KEY needs NOTARY_ISSUER}"
+  [ -r "$NOTARY_KEY" ] || { echo "can't read NOTARY_KEY: $NOTARY_KEY" >&2; exit 1; }
+  NOTARY=(--key "$NOTARY_KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER")
+elif [ -n "${NOTARY_PROFILE:-}" ]; then
+  NOTARY=(--keychain-profile "$NOTARY_PROFILE")
+  if [ -n "${NOTARY_KEYCHAIN:-}" ]; then NOTARY+=(--keychain "$NOTARY_KEYCHAIN"); fi
+fi
+if [ ${#NOTARY[@]} -gt 0 ]; then
+  # Before the build, not twenty minutes into it: the credentials must work now.
+  xcrun notarytool history "${NOTARY[@]}" >/dev/null || { echo "notarytool can't sign in with these credentials" >&2; exit 1; }
+else
+  echo "▸ not notarizing: don't publish this build"
+fi
 OUT=build/release
 STAGE="$OUT/stage"
 rm -rf "$OUT"
@@ -44,7 +68,7 @@ codesign --verify --strict -R="identifier \"com.kadaliao.SuckMyDisk\" and anchor
 plutil -lint -s "$STAGE/SuckMyDisk.app/Contents/Library/LaunchDaemons/com.kadaliao.SuckMyDisk.helper.plist"
 codesign --verify --strict "$STAGE/smd"
 
-if [ -n "${NOTARY_PROFILE:-}" ]; then
+if [ ${#NOTARY[@]} -gt 0 ]; then
   echo "▸ notarize"
   ditto -c -k "$STAGE" "$OUT/notarize.zip"
   xcrun notarytool submit "$OUT/notarize.zip" "${NOTARY[@]}" --wait
@@ -62,7 +86,7 @@ ln -s /Applications "$OUT/dmg/Applications"
 hdiutil create -quiet -volname "SuckMyDisk $VERSION" -srcfolder "$OUT/dmg" -fs APFS -format ULFO -ov "$DMG"
 rm -rf "$OUT/dmg"
 codesign --sign "$IDENTITY" --timestamp "$DMG"
-if [ -n "${NOTARY_PROFILE:-}" ]; then
+if [ ${#NOTARY[@]} -gt 0 ]; then
   xcrun notarytool submit "$DMG" "${NOTARY[@]}" --wait
   xcrun stapler staple "$DMG"
   spctl --assess --type open --context context:primary-signature "$DMG"

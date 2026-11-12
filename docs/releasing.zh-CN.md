@@ -15,14 +15,24 @@
 ## 一次性准备
 
 1. 登录钥匙串里要有 **Developer ID Application** 证书。脚本默认用 `Developer ID Application: Xingyi Liao (HMDAVG9B8J)`；要用别的证书（比如在 fork 里），设置 `SIGN_IDENTITY`。
-2. 一个 **notarytool 钥匙串配置**：
+2. **公证用的凭据**，两种任选其一，都绝不要提交到仓库。
+
+   **App Store Connect API 密钥**（推荐：不经过钥匙串，也就不会从钥匙串里丢）。在 App Store Connect → 用户和访问 → 集成 → App Store Connect API 里建一把团队密钥，下载它的 `.p8` 文件（只能下载一次），记下页面上的 Key ID 和 Issuer ID。把这三样写进 `~/.appstoreconnect/notary.env`，命令行没给凭据时发布脚本会读它：
+
+   ```sh
+   NOTARY_KEY="$HOME/.appstoreconnect/private_keys/AuthKey_<key-id>.p8"
+   NOTARY_KEY_ID="<key-id>"
+   NOTARY_ISSUER="<issuer-id>"
+   ```
+
+   或者一个 **notarytool 钥匙串配置**：
 
    ```sh
    xcrun notarytool store-credentials <profile-name> \
      --apple-id <apple-id> --team-id <team-id>
    ```
 
-   它会要求输入 App 专用密码，然后把所有信息存进钥匙串。绝不要把凭据提交到仓库。在 SSH 会话里，登录钥匙串不接受新的配置（报“User interaction is not allowed”）：加上 `--keychain <文件>` 把它存进一个单独的钥匙串文件，再用 `NOTARY_KEYCHAIN=<文件>` 把这个文件告诉发布脚本。
+   它会要求输入 App 专用密码，然后把所有信息存进钥匙串；运行发布脚本时带上 `NOTARY_PROFILE=<profile-name>`。在 SSH 会话里，登录钥匙串不接受新的配置（报“User interaction is not allowed”）：加上 `--keychain <文件>` 把它存进一个单独的钥匙串文件，再用 `NOTARY_KEYCHAIN=<文件>` 把这个文件告诉发布脚本。
 3. `brew install xcodegen gh`，然后 `gh auth login`。
 
 ## 步骤
@@ -38,10 +48,12 @@
 4. **构建、签名、公证、打包。**
 
    ```sh
-   NOTARY_PROFILE=<profile-name> scripts/release.sh
+   scripts/release.sh
    ```
 
-   脚本会重新生成 Xcode 工程，以 Release 配置构建 App，把 `smd` 构建成通用二进制（arm64 + x86_64），给两者都用 hardened runtime 签名，提交公证并等待结果，给 App 钉上公证票据（staple），用 `spctl` 检查。接着做磁盘映像（App 旁边放一个「应用程序」的快捷方式），同样签名、公证、钉票据，最后删掉暂存目录里散放的 App。没有设置 `NOTARY_PROFILE` 时，所有产物只签名、不公证；这样的包不要发布。
+   脚本一开始会先确认公证凭据能用，不能用就停下。`NOTARIZE=0` 表示只构建、签名，不公证。
+
+   脚本会重新生成 Xcode 工程，以 Release 配置构建 App，把 `smd` 构建成通用二进制（arm64 + x86_64），给两者都用 hardened runtime 签名，提交公证并等待结果，给 App 钉上公证票据（staple），用 `spctl` 检查。接着做磁盘映像（App 旁边放一个「应用程序」的快捷方式），同样签名、公证、钉票据，最后删掉暂存目录里散放的 App。没有凭据时，所有产物只签名、不公证；这样的包不要发布。
 
    产物在 `build/release/`：
 
