@@ -655,8 +655,8 @@ final class AppModel {
         }
         var doneIDs: Set<String> = []
         let store = try? Store()
-        let chosen = userOn   // ticked by hand, not preselected
-        // With the helper on, an app that belongs to the system goes without Finder's password dialog.
+        // With the helper on, an app that belongs to the system goes without Finder's password dialog,
+        // and what it left running as root is stopped first.
         let elevate: (@Sendable (String) -> String?)?
         if Helper.isOn { elevate = { HelperClient.trashApp($0) } } else { elevate = nil }
         for (n, item) in items.enumerated() {
@@ -665,7 +665,7 @@ final class AppModel {
             run.rows[n].state = .running
             // Stop cancels this task: the executor sees it before its next step and ends a running command.
             let work = Task.detached(priority: .userInitiated) {
-                Executor(store: store, chosen: chosen, log: { _ in },
+                Executor(store: store, log: { _ in },
                          note: { text in Task { @MainActor in run.note(text, row: n) } },
                          isCancelled: { Task.isCancelled }, elevate: elevate).run([item]).first
             }

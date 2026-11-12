@@ -40,7 +40,7 @@ CFastScan ← DiskIndex ← Insights ← Recognizers ← Reclaim
                 ↑                                   ↑
                 Update (app only)    smd and the app use all of them
 
-Privileged stands alone: the app and the helper use it, smd doesn't
+Privileged stands alone: the helper is built from it; Reclaim uses its AppServices
 ```
 
 ## The data flow
@@ -262,19 +262,27 @@ Every recognizer must follow the rules in
 `Executor` runs items one by one. Right before each, for every path the action
 touches, it checks `Guards.isDenied`, that the path exists and is not a
 symlink, that git tracks nothing in it (failing closed), that no running
-program's command line names it (`ps`, also failing closed), and the 7-day
-rule. `force` lifts that rule for every item; `chosen`, the items the person
-ticked by hand, lifts it for the regenerable ones among them, so preselected
-items that changed after the scan stay put. For uv's commands it also checks
+program's command line names it (`ps`, also failing closed). How recently an
+item changed is not checked here: that only decides what the recognizers tick
+by default (`Guards.recentChange`), so nothing is listed that can be ticked
+but not cleaned. For uv's commands it also checks
 that no uv is running, since uv would wait on its cache lock, and sets
 `UV_LOCK_TIMEOUT` in case one starts meanwhile. It also refuses anything System
 Integrity Protection guards (`SF_RESTRICTED`).
 
-Items with an `app` get more: the app must still be installed, and nothing may
-run from it (`Guards.program(inApp:in:)`, which also catches a translocated copy
-by its `/<Name>.app/Contents/` path). Picked by hand, they skip the 7-day rule,
-because opening an app changes its folders and "not running" is the check that
-matters. Folders that vanished since recognition are dropped from the action
+Items with an `app` get more: the app must still be installed and not open
+(`Guards.mainProgram(ofApp:in:)`: its `CFBundleExecutable` is not running, a
+translocated copy counted by its `/<Name>.app/Contents/` path). Other programs
+from inside it (`Guards.programs(inApp:in:)`) are what it left in the
+background, a daemon or a helper nobody can quit by hand. An item that only
+clears caches is skipped for them. An item that removes the app stops them:
+`AppServices.stop` unloads the launchd agents whose program is inside the app
+(`launchctl bootout gui/<uid>/<label>`) and ends the person's own processes
+there, SIGTERM first and SIGKILL after 3 seconds. A process of another user
+(root's daemon; `ps` gives the uid) is left for the helper: without one the
+item is skipped with a message naming the setting, and with one the app is
+moved by the helper alone, never by Finder, which would leave the daemon
+running from the Trash. Folders that vanished since recognition are dropped from the action
 rather than failing it (`Executor.existing`).
 
 For `.erase`, the database must still be a regular file that no running
@@ -366,9 +374,19 @@ It is root, so it is small and trusts nothing it is sent:
   the path must be `/Applications/<name>.app` or one folder down (never
   Utilities, never inside another bundle, no `.`/`..`/empty parts); the
   bundle must be a real folder with a bundle id, not SIP-protected, not
-  SuckMyDisk, with no process running from it (`proc_pidpath`; no
-  subprocesses, so nothing is looked up on a PATH as root). The Trash must be
-  a real folder owned by the caller on the same volume.
+  SuckMyDisk, and not open (`AppServices.isOpen`: no process runs its
+  `CFBundleExecutable`, by `proc_pidpath`). The Trash must be a real folder
+  owned by the caller on the same volume.
+- **What it stops.** Before the move, `AppServices.stop` as root: the jobs in
+  `/Library/LaunchDaemons` and `/Library/LaunchAgents` whose `Program` or
+  first `ProgramArguments` entry is inside the app are unloaded
+  (`/bin/launchctl bootout`, by full path, with a label limited to letters,
+  digits, `.`, `-` and `_`), and every process whose file is inside the app
+  is ended, SIGTERM then SIGKILL. Job files inside the app bundle are not
+  read: the app may be writable by its user, and a label taken from there
+  could name any system service. After the move, anything launchd restarted
+  in between is ended at the app's new path, and the jobs' files are moved to
+  the Trash the same way as the app.
 - **The move** is one `renameatx_np` with `RENAME_EXCL | RENAME_NOFOLLOW_ANY`:
   it never replaces anything and fails if any component of either path is a
   symlink, so a swap after the checks can't redirect it.
@@ -446,14 +464,16 @@ fixtures built in temporary folders:
 - `AppTests`: which apps are listed, which folders belong to which app
   (suffixes, team-id group containers, vendor folders and generic names left
   out), Homebrew and system-component warnings, running apps left alone
-  (translocated copies too), hand-picked app items and the 7-day rule, a
-  removed app reported, shared folders protected.
+  (translocated copies too), a removed app reported, shared folders
+  protected.
 - `PrivilegedTests`: the helper's rules on made-up folders, as an ordinary
   user: which paths count as an app in an applications folder, what is
-  refused (non-administrators, running apps, SuckMyDisk itself, a Trash that
-  isn't the caller's), symlinks never followed on either side, nothing in the
-  Trash replaced, and the executor asking the helper only for an app it
-  couldn't move itself.
+  refused (non-administrators, an open app, SuckMyDisk itself, a Trash that
+  isn't the caller's), a background program stopped and its launchd job sent
+  to the Trash with the app, symlinks never followed on either side, nothing
+  in the Trash replaced, the executor asking the helper only for an app it
+  couldn't move itself, and stopping an app's background programs only when
+  uninstalling.
 - `LargeFileTests`: only what nothing else lists (dot folders, folded
   dependencies, git-tracked files, other items and vault chunks left out), a
   sharded model as one folder, installers naming their app.
@@ -462,8 +482,8 @@ fixtures built in temporary folders:
   a running browser left alone, Firefox history keeping bookmarks, the erase
   tier in saved reports.
 - `SafetyTests`: denied locations, covered items, executor refusing protected
-  and git-tracked paths, files a running program uses, the 7-day rule and
-  what lifts it, uv waiting for no one, Node scripts finding `node` from an
+  and git-tracked paths, files a running program uses, recent changes not
+  holding a ticked item back, uv waiting for no one, Node scripts finding `node` from an
   app's bare PATH.
 - `LiveIndexTests`: a patched tree equals a fresh scan, saved trees keep
   growing, big folders wait their turn, privacy-prompting folders are never

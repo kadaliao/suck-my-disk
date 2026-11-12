@@ -60,6 +60,8 @@ public enum Guards {
     public struct Program: Sendable {
         public var pid: Int32
         public var command: String
+        /// Whose it is. The person can't stop somebody else's (root's daemon).
+        public var uid: uid_t = getuid()
 
         /// The program's file name, like `uv` or `node`.
         public var name: String { (command.split(separator: " ").first.map(String.init).map { ($0 as NSString).lastPathComponent }) ?? "" }
@@ -75,12 +77,12 @@ public enum Guards {
 
     /// The running programs, or nil if they can't be read.
     public static func runningPrograms() -> [Program]? {
-        let r = Shell.run(["ps", "-axww", "-o", "pid=,command="], timeout: 10)
+        let r = Shell.run(["ps", "-axww", "-o", "pid=,uid=,command="], timeout: 10)
         guard r.ok else { return nil }
         return r.stdout.split(separator: "\n").compactMap { line in
-            let t = line.drop { $0 == " " }
-            guard let sp = t.firstIndex(of: " "), let pid = Int32(t[..<sp]) else { return nil }
-            return Program(pid: pid, command: String(t[sp...].dropFirst()))
+            let f = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            guard f.count == 3, let pid = Int32(f[0]), let uid = uid_t(f[1]) else { return nil }
+            return Program(pid: pid, command: String(f[2]), uid: uid)
         }
     }
 
@@ -94,13 +96,31 @@ public enum Guards {
     /// A running program from the app at `path`, or from a copy of it that macOS runs from
     /// somewhere else (App Translocation runs downloaded apps from a hidden folder).
     public static func program(inApp path: String, in programs: [Program]) -> Program? {
-        if let p = program(using: path, in: programs) { return p }
-        let inside = "/" + (path as NSString).lastPathComponent + "/Contents/"
-        return programs.first { $0.command.contains(inside) }
+        self.programs(inApp: path, in: programs).first
     }
 
-    /// A change this recent keeps an item from being cleaned, unless the person picked
-    /// a regenerable one themselves.
+    /// Every running program from the app at `path`, a copy run from somewhere else included.
+    public static func programs(inApp path: String, in programs: [Program]) -> [Program] {
+        let p = Firmlinks.userPath((path as NSString).standardizingPath)
+        let inside = "/" + (path as NSString).lastPathComponent + "/Contents/"
+        return programs.filter {
+            $0.command.contains(p + "/") || $0.command.contains(p + " ") || $0.command.hasSuffix(p) || $0.command.contains(inside)
+        }
+    }
+
+    /// The app itself among `programs` (its main program, the one its owner can quit), as
+    /// against the daemons and helpers it leaves running in the background.
+    public static func mainProgram(ofApp path: String, in programs: [Program]) -> Program? {
+        let file = (path as NSString).lastPathComponent
+        let info = [path + "/Contents/Info.plist", path + "/WrappedBundle/Info.plist"]
+            .lazy.compactMap { NSDictionary(contentsOfFile: $0) as? [String: Any] }.first
+        let exe = (info?["CFBundleExecutable"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? ""
+        let tail = "/" + file + "/Contents/MacOS/" + exe
+        return programs.first { exe.isEmpty ? $0.command.contains(tail) : $0.command.hasSuffix(tail) || $0.command.contains(tail + " ") }
+    }
+
+    /// Something changed this recently is still being worked on: recognizers don't tick it
+    /// by default. Once ticked, by them or by the person, it is cleaned like anything else.
     public static let quietPeriod: TimeInterval = 7 * 86400
 
     /// Newest of mtime / ctime for the item itself (its own inode).
@@ -117,9 +137,8 @@ public enum Guards {
         return d
     }
 
-    /// "changed 10-31 18:07; can be cleaned after 11-07 18:07"
-    public static func waitNote(changed d: Date) -> String {
-        L("\(Fmt.stamp(d)) 改过，\(Fmt.stamp(d + quietPeriod)) 之后才能清",
-          "changed \(Fmt.stamp(d)); can be cleaned after \(Fmt.stamp(d + quietPeriod))")
+    /// "changed 10-31 18:07": a warning on an item you may still be working on.
+    public static func recentNote(changed d: Date) -> String {
+        L("\(Fmt.stamp(d)) 刚改过，确认不再用了再勾", "changed \(Fmt.stamp(d)); make sure you are done with it")
     }
 }

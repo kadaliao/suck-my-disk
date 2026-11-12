@@ -397,7 +397,7 @@ final class Flag: @unchecked Sendable {
         #expect(Shell.run(["git", "-C", f.path("repo"), "add", "out/final.mp4"]).ok)
         let item = ReclaimItem(id: "x", label: "out", path: f.path("repo/out"), bytes: 1, tier: .regenerable,
                                action: .delete(path: f.path("repo/out")), reason: "", preselected: true)
-        let o = Executor(store: nil, force: true, log: { _ in }).run([item])[0]
+        let o = Executor(store: nil, log: { _ in }).run([item])[0]
         #expect(o.status == .skipped)
         #expect(FileManager.default.fileExists(atPath: f.path("repo/out/final.mp4")))
 
@@ -406,13 +406,13 @@ final class Flag: @unchecked Sendable {
         try f.file("broken/out/x.bin", mb: 1)
         let item2 = ReclaimItem(id: "y", label: "out", path: f.path("broken/out"), bytes: 1, tier: .regenerable,
                                 action: .delete(path: f.path("broken/out")), reason: "", preselected: true)
-        #expect(Executor(store: nil, force: true, log: { _ in }).run([item2])[0].status == .skipped)
+        #expect(Executor(store: nil, log: { _ in }).run([item2])[0].status == .skipped)
 
         // Untracked, old, regenerable: deleted, and the space is measured.
         try f.file("plain/node_modules/x.bin", mb: 2)
         let item3 = ReclaimItem(id: "z", label: "nm", path: f.path("plain/node_modules"), bytes: 1, tier: .regenerable,
                                 action: .delete(path: f.path("plain/node_modules")), reason: "", preselected: true)
-        #expect(Executor(store: nil, force: true, log: { _ in }).run([item3])[0].status == .done)
+        #expect(Executor(store: nil, log: { _ in }).run([item3])[0].status == .done)
         #expect(!FileManager.default.fileExists(atPath: f.path("plain/node_modules")))
     }
 
@@ -423,7 +423,7 @@ final class Flag: @unchecked Sendable {
         defer { server.terminate() }
         let item = ReclaimItem(id: "n", label: "npx", path: f.path("npx/ccc"), bytes: 1, tier: .regenerable,
                                action: .delete(path: f.path("npx/ccc")), reason: "", preselected: true)
-        let o = Executor(store: nil, force: true, chosen: ["n"], log: { _ in }).run([item])[0]
+        let o = Executor(store: nil, log: { _ in }).run([item])[0]
         #expect(o.status == .skipped)
         #expect(o.message.contains("tail") && o.message.contains("PID \(server.processIdentifier)"))   // says who
         #expect(FileManager.default.fileExists(atPath: f.path("npx/ccc/node_modules/x.bin")))
@@ -431,52 +431,22 @@ final class Flag: @unchecked Sendable {
         #expect(Guards.program(using: f.path("npx/cc"), in: Guards.runningPrograms() ?? []) == nil)
     }
 
-    @Test func recentChangesNeedForce() throws {
+    /// What is ticked goes, however recently it changed: a download cache changes every time its
+    /// tool runs. How recent a change is only decides what the recognizers tick by default.
+    @Test func recentChangesDontHoldAnItemBack() throws {
         let f = try Fixture()
-        try f.file("p/node_modules/x.bin", mb: 1)
-        let item = ReclaimItem(id: "r", label: "nm", path: f.path("p/node_modules"), bytes: 1, tier: .regenerable,
-                               action: .delete(path: f.path("p/node_modules")), reason: "", preselected: true)
-        let o = Executor(store: nil, force: false, log: { _ in }).run([item])[0]
-        #expect(o.status == .skipped)
-        // Says when it can go, and nothing about a flag the app doesn't have.
-        let changed = try #require(Guards.lastChange(f.path("p/node_modules")))
-        #expect(o.message.contains(Fmt.stamp(changed + Guards.quietPeriod)) && !o.message.contains("--force"))
-        #expect(FileManager.default.fileExists(atPath: f.path("p/node_modules")))
-    }
-
-    /// Ticked by hand, a regenerable item goes even if it changed this week; your own files don't.
-    @Test func handPickedRegenerableSkipsTheWait() throws {
-        let f = try Fixture()
-        try f.file("p/target/x.bin", mb: 1)
+        try f.file("cache/pip/x.bin", mb: 1)
         try f.file("mine/clip.mov", mb: 1)
-        let build = ReclaimItem(id: "b", label: "target", path: f.path("p/target"), bytes: 1, tier: .regenerable,
-                                action: .delete(path: f.path("p/target")), reason: "", preselected: false)
+        let cache = ReclaimItem(id: "c", label: "pip", path: f.path("cache/pip"), bytes: 1, tier: .regenerable,
+                                action: .delete(path: f.path("cache/pip")), reason: "", preselected: true)
+        // A delete stands in for the Trash here, so the test leaves nothing in your Trash.
         let mine = ReclaimItem(id: "m", label: "clip", path: f.path("mine"), bytes: 1, tier: .yours,
-                               action: .trash(path: f.path("mine")), reason: "", preselected: false)
-        let out = Executor(store: nil, chosen: ["b", "m"], log: { _ in }).run([build, mine])
-        #expect(out[0].status == .done)
-        #expect(!FileManager.default.fileExists(atPath: f.path("p/target")))
-        #expect(out[1].status == .skipped)
-        #expect(FileManager.default.fileExists(atPath: f.path("mine/clip.mov")))
-    }
-
-    /// Stop reaches the command that is running, and nothing after it starts.
-    @Test func stopEndsTheRunningCommandAndTheRun() throws {
-        let f = try Fixture()
-        try f.file("p/target/x.bin", mb: 1)
-        let wait = ReclaimItem(id: "w", label: "wait", path: nil, bytes: 1, tier: .regenerable,
-                               action: .command(argv: ["sleep", "60"], cwd: nil), reason: "", preselected: true)
-        let build = ReclaimItem(id: "b", label: "target", path: f.path("p/target"), bytes: 1, tier: .regenerable,
-                                action: .delete(path: f.path("p/target")), reason: "", preselected: true)
-        let stop = Flag()
-        let started = Date()
-        // Stop as soon as the command is announced.
-        let out = Executor(store: nil, force: true, log: { if $0.contains("sleep") { stop.set() } },
-                           isCancelled: { stop.isSet }).run([wait, build])
-        #expect(Date().timeIntervalSince(started) < 10)
-        #expect(out.count == 1)
-        #expect(out[0].status == .stopped)
-        #expect(FileManager.default.fileExists(atPath: f.path("p/target/x.bin")))
+                               action: .delete(path: f.path("mine")), reason: "", preselected: false)
+        #expect(Guards.recentChange(f.path("cache/pip")) != nil)
+        let out = Executor(store: nil, log: { _ in }).run([cache, mine])
+        #expect(out.allSatisfy { $0.status == .done }, "\(out.map(\.message))")
+        #expect(!FileManager.default.fileExists(atPath: f.path("cache/pip")))
+        #expect(!FileManager.default.fileExists(atPath: f.path("mine")))
     }
 
     /// Stopped halfway through an item: what was done stays done, the rest is untouched, and it is not reported as done.
@@ -489,7 +459,7 @@ final class Flag: @unchecked Sendable {
                                                            .delete(path: f.path("b"))]),
                                reason: "", preselected: true)
         let stop = Flag()
-        let out = Executor(store: nil, force: true, log: { if $0.contains("sleep") { stop.set() } },
+        let out = Executor(store: nil, log: { if $0.contains("sleep") { stop.set() } },
                            isCancelled: { stop.isSet }).run([item])
         #expect(out[0].status == .stopped)
         #expect(!out[0].message.isEmpty)
@@ -497,7 +467,7 @@ final class Flag: @unchecked Sendable {
         #expect(FileManager.default.fileExists(atPath: f.path("b/x.bin")))
 
         // Stopped before the run began: nothing has an outcome, nothing is touched.
-        #expect(Executor(store: nil, force: true, log: { _ in }, isCancelled: { true }).run([item]).isEmpty)
+        #expect(Executor(store: nil, log: { _ in }, isCancelled: { true }).run([item]).isEmpty)
         #expect(FileManager.default.fileExists(atPath: f.path("b/x.bin")))
     }
 
@@ -616,7 +586,7 @@ final class Flag: @unchecked Sendable {
                                  action: .deleteAll(paths: [f.path("Library/Caches/com.example.runner"), f.path("Library/Logs/gone")]),
                                  reason: "", preselected: false, app: bundle)
         let runner = try f.runningProgram(using: "Apps/Runner.app/Contents/Resources/helper")
-        let o = Executor(store: nil, chosen: ["c"], log: { _ in }).run([caches])[0]
+        let o = Executor(store: nil, log: { _ in }).run([caches])[0]
         runner.terminate()
         runner.waitUntilExit()
         #expect(o.status == .skipped && o.message.contains("Runner") && o.message.contains("PID \(runner.processIdentifier)"))
@@ -625,15 +595,15 @@ final class Flag: @unchecked Sendable {
         let moved = [Guards.Program(pid: 9, command: "/private/var/folders/x/AppTranslocation/ABC/d/Runner.app/Contents/MacOS/Runner")]
         #expect(Guards.program(inApp: bundle, in: moved)?.pid == 9)
 
-        // Changed just now and picked by hand: goes, and the folder that vanished meanwhile doesn't stop it.
-        let done = Executor(store: nil, chosen: ["c"], log: { _ in }).run([caches])[0]
+        // Changed just now: goes, and the folder that vanished meanwhile doesn't stop it.
+        let done = Executor(store: nil, log: { _ in }).run([caches])[0]
         #expect(done.status == .done, "\(done.message)")
         #expect(!FileManager.default.fileExists(atPath: f.path("Library/Caches/com.example.runner")))
         #expect(FileManager.default.fileExists(atPath: bundle + "/Contents/MacOS/bin"))
     }
 
-    /// An app's items picked by hand skip the 7-day rule; preselected or not picked, they wait.
-    @Test func handPickedAppItemsSkipTheWait() throws {
+    /// An app that was removed since the scan is reported, and its data stays.
+    @Test func anAppThatIsGoneIsReported() throws {
         let f = try Fixture()
         let bundle = f.path("Apps/Fresh.app")
         try app(f, "Apps/Fresh.app", id: "com.example.fresh")
@@ -642,12 +612,11 @@ final class Flag: @unchecked Sendable {
         let item = ReclaimItem(id: "u", label: "data", path: bundle, bytes: 1, tier: .yours,
                                action: .deleteAll(paths: [f.path("Library/Application Support/Fresh")]),
                                reason: "", preselected: false, app: bundle)
-        #expect(Executor(store: nil, log: { _ in }).run([item])[0].status == .skipped)
-        #expect(Executor(store: nil, chosen: ["u"], log: { _ in }).run([item])[0].status == .done)
+        #expect(Executor(store: nil, log: { _ in }).run([item])[0].status == .done)
         // The app itself gone: reported, not quietly half-done.
         try FileManager.default.removeItem(atPath: bundle)
         try f.file("Library/Application Support/Fresh/state.db", mb: 1)
-        let gone = Executor(store: nil, chosen: ["u"], log: { _ in }).run([item])[0]
+        let gone = Executor(store: nil, log: { _ in }).run([item])[0]
         #expect(gone.status == .skipped)
         #expect(FileManager.default.fileExists(atPath: f.path("Library/Application Support/Fresh/state.db")))
     }

@@ -23,7 +23,8 @@ anything that could make it remove data it shouldn't.
 - A way to make the helper (the part that runs as root once you turn on
   **Uninstall system apps without a password**) act for anything other than
   SuckMyDisk itself, or do anything other than move an app from the
-  Applications folder to the caller's own Trash.
+  Applications folder to the caller's own Trash, stopping that app's own
+  background programs first.
 - Problems with the signed and notarized release builds.
 
 Ordinary bugs (wrong numbers, a missing recognizer, a crash) can go in a
@@ -66,7 +67,7 @@ SuckMyDisk 会删除文件，所以在这个项目里，凡是可能让它删掉
 - 能让识别器或执行器越过它列出的范围去动别的东西，比如借助特制的文件名或文件夹名、符号链接、清理命令。
 - 没有「完全磁盘访问」时读取了受隐私保护的文件夹，或者把数据发到了本机以外。
 - 能让自动更新装上任何不是「更新的、正版的、经过公证的 SuckMyDisk 版本」的东西。
-- 能让卸载助手（打开 **卸载系统应用时不用输密码** 以后以 root 身份运行的那部分）听 SuckMyDisk 以外的程序的话，或者做「把『应用程序』文件夹里的应用移到调用者自己的废纸篓」以外的任何事。
+- 能让卸载助手（打开 **卸载系统应用时不用输密码** 以后以 root 身份运行的那部分）听 SuckMyDisk 以外的程序的话，或者做「把『应用程序』文件夹里的应用移到调用者自己的废纸篓，并在此之前停掉这个应用自己的后台程序」以外的任何事。
 - 已签名、已公证的发布版本本身有问题。
 
 一般的 bug（数字不对、少了某个识别器、崩溃）直接提公开 issue 就行。

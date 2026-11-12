@@ -86,7 +86,7 @@ public enum ModelRecognizer {
                     var item = ReclaimItem(id: "lms:" + path, label: tree.name(pub) + "/" + tree.name(repo), path: path,
                                            bytes: tree.size(repo), tier: .yours, action: .trash(path: path),
                                            reason: L("LM Studio 模型", "LM Studio model"), preselected: false)
-                    if let d = Guards.recentChange(path, now: ctx.now) { item.warnings.append(Guards.waitNote(changed: d)) }
+                    if let d = Guards.recentChange(path, now: ctx.now) { item.warnings.append(Guards.recentNote(changed: d)) }
                     items.append(item)
                 }
             }

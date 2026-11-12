@@ -44,7 +44,7 @@ back.
 - **Safe by default.** Rebuildable things are deleted with a restore command in
   the journal; your own files go to the Trash. iCloud, Photos, `.git`,
   git-tracked files and anything a running program uses are never touched,
-  and anything changed in the last 7 days is only cleaned if you tick it.
+  and anything still changing in the last 7 days is not ticked by default.
 - **Live.** After the first scan the index follows the disk through FSEvents.
   Reopening the app catches up in about a second instead of rescanning.
 - **Uninstalls apps, or just clears their caches.** Every installed app is
@@ -153,13 +153,14 @@ The [user guide](docs/user-guide.md) walks through every screen and command.
   Google Drive), Photos / Music / Mail / Messages libraries, Keychains, `.ssh`,
   `.gnupg`, anything inside `.git`, git-tracked files, symlinks, and files a
   running program is using.
-- Anything changed in the last 7 days is left alone too, unless it is a
-  rebuildable item (a build folder, a cache) or an app you ticked yourself.
-  Your own files wait the 7 days even when ticked. The CLI's `--force` lifts
-  this rule, and only this one.
-- An app's items are skipped while anything runs from that app. Uninstalling
-  moves everything to the Trash, so it can be put back; components an app
-  installed for every user (`/Library`, privileged helpers) are not touched.
+- Project artifacts and rendered frames that changed in the last 7 days are
+  not ticked by default, and your own files carry a warning. Whatever is
+  ticked is cleaned: nothing is listed that you can tick but not clean.
+- An app's items are skipped while that app is open. Uninstalling stops what
+  the app left running in the background (a service that runs as root takes
+  the uninstall helper) and moves everything to the Trash, so it can be put
+  back; other components an app installed for every user (`/Library`,
+  privileged helpers) are not touched.
 - Tools with their own cleanup command (uv, npm, pnpm, bun, Yarn, Homebrew,
   `simctl`, Docker) are run instead of deleting their folders, because the
   tool knows what is still in use. `docker system prune` is never used.

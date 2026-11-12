@@ -38,7 +38,7 @@ CFastScan ← DiskIndex ← Insights ← Recognizers ← Reclaim
                 ↑                                   ↑
                 Update (app only)    smd and the app use all of them
 
-Privileged stands alone: the app and the helper use it, smd doesn't
+Privileged stands alone: the helper is built from it; Reclaim uses its AppServices
 ```
 
 ## 数据流
@@ -132,9 +132,9 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 
 ## 执行（`Reclaim`）
 
-`Executor` 一项一项地执行。每一项动手之前，对它要碰的每个路径都检查一遍：`Guards.isDenied`、路径还在且不是符号链接、git 没有跟踪里面的任何文件（拿不准就当作有）、没有正在运行的程序的命令行提到它（用 `ps` 查，同样拿不准就不删），以及 7 天规则。`force` 对所有条目解除这条规则；`chosen` 是用户亲手勾的条目，其中可再生的不受它限制，所以扫描之后又改过的预选条目照样不动。跑 uv 的命令前还会确认没有 uv 在运行，因为 uv 会等缓存的锁；同时设上 `UV_LOCK_TIMEOUT`，防止这期间正好又起了一个。受系统完整性保护（`SF_RESTRICTED`）的东西一律不碰。
+`Executor` 一项一项地执行。每一项动手之前，对它要碰的每个路径都检查一遍：`Guards.isDenied`、路径还在且不是符号链接、git 没有跟踪里面的任何文件（拿不准就当作有）、没有正在运行的程序的命令行提到它（用 `ps` 查，同样拿不准就不删），。条目最近有没有改过不在这里查：那只决定识别器默认勾不勾（`Guards.recentChange`），所以列表里不会出现勾得上却清不掉的东西。跑 uv 的命令前还会确认没有 uv 在运行，因为 uv 会等缓存的锁；同时设上 `UV_LOCK_TIMEOUT`，防止这期间正好又起了一个。受系统完整性保护（`SF_RESTRICTED`）的东西一律不碰。
 
-带 `app` 的条目还要多查几样：应用还装着，而且没有任何东西从它里面运行（`Guards.program(inApp:in:)`，按 `/<Name>.app/Contents/` 也能认出被 macOS 挪到别处运行的副本）。用户亲手勾的，不受 7 天规则限制：打开应用就会改动它的文件夹，对应用来说要紧的是「没在运行」。识别之后消失的文件夹会从动作里去掉，而不是让整项失败（`Executor.existing`）。
+带 `app` 的条目还要多查几样：应用还装着，而且没打开（`Guards.mainProgram(ofApp:in:)`：它的 `CFBundleExecutable` 没在运行，按 `/<Name>.app/Contents/` 也能认出被 macOS 挪到别处运行的副本）。从它里面运行的其他程序（`Guards.programs(inApp:in:)`）是它留在后台的东西：守护进程、辅助程序，没人能手动退出。只清缓存的条目遇到它们就跳过；要移走应用的条目会先停掉它们：`AppServices.stop` 卸下程序在应用里面的 launchd 代理（`launchctl bootout gui/<uid>/<label>`），再结束这个用户自己在里面的进程，先 SIGTERM，3 秒后 SIGKILL。别的用户的进程（root 的守护进程，`ps` 给出 uid）留给助手：没有助手就跳过，并写明该打开哪个设置；有助手时这个应用只由助手来移，不找访达，否则守护进程会在废纸篓里接着跑。识别之后消失的文件夹会从动作里去掉，而不是让整项失败（`Executor.existing`）。
 
 `.erase` 动作要求数据库仍是普通文件、没有正在运行的程序在命令行里提到它；然后 `ForeignDB.erase` 以读写方式打开，不等待地执行 `BEGIN EXCLUSIVE`（浏览器还占着就让这一项失败，什么都不改），打开 `secure_delete`，执行各条语句（这个版本的浏览器没有的表，对应语句跳过；其他错误整体回滚），提交后再 `VACUUM`。清除的行数写进日志。
 
@@ -168,7 +168,8 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 它是 root，所以做得很小，而且不相信收到的任何东西：
 
 - **谁能调用。** 监听端设了 `setConnectionCodeSigningRequirement`：标识符 `com.kadaliao.SuckMyDisk`、Apple 根证书，以及给助手自己签名的那个团队（从它自己的签名里读，所以 fork 出来的构建信任的是 fork 的 App）。没有团队签名的助手拒绝运行。App 这一端也设了对应的要求。用户取自连接本身（`effectiveUserIdentifier`），而且必须在 `admin` 组里。
-- **它做什么。** 只有一条消息 `trashApp(path)`，由 `AppMover` 处理：路径必须是 `/Applications/<名字>.app` 或往下一层（不能是「实用工具」，不能在别的包里面，不能有 `.`、`..` 或空的部分）；它必须是一个真的文件夹，有 bundle id，不受 SIP 保护，不是 SuckMyDisk，也没有进程从里面运行（用 `proc_pidpath` 查；不启动子进程，所以不会以 root 身份去 PATH 里找程序）。废纸篓必须是调用者自己的真文件夹，并且在同一个卷上。
+- **它做什么。** 只有一条消息 `trashApp(path)`，由 `AppMover` 处理：路径必须是 `/Applications/<名字>.app` 或往下一层（不能是「实用工具」，不能在别的包里面，不能有 `.`、`..` 或空的部分）；它必须是一个真的文件夹，有 bundle id，不受 SIP 保护，不是 SuckMyDisk，也没打开（`AppServices.isOpen`：用 `proc_pidpath` 查，没有进程在跑它的 `CFBundleExecutable`）。废纸篓必须是调用者自己的真文件夹，并且在同一个卷上。
+- **它停什么。** 移之前以 root 身份执行 `AppServices.stop`：`/Library/LaunchDaemons` 和 `/Library/LaunchAgents` 里 `Program` 或 `ProgramArguments` 第一项在应用里面的任务会被卸下（按完整路径运行 `/bin/launchctl bootout`，label 只允许字母、数字、`.`、`-`、`_`），文件在应用里面的进程全部结束，先 SIGTERM 后 SIGKILL。应用包里面的任务文件不读：应用可能是用户可写的，从那里取的 label 可以指向任何系统服务。移完以后，这期间被 launchd 重新拉起的进程按应用的新路径再结束一次，任务文件用和应用一样的办法移进废纸篓。
 - **移动** 只是一次 `renameatx_np`，带 `RENAME_EXCL | RENAME_NOFOLLOW_ANY`：从不覆盖已有的东西，两边路径上只要有一段是符号链接就失败，所以检查之后再偷换也改不了去向。
 - **生命周期。** launchd 按需启动（`MachServices`），空闲 30 秒自己退出。`hello` 返回 `Privileged.version`；更新之前留下来的旧助手会被要求 `quit`，由新的程序来回答。
 
@@ -200,9 +201,9 @@ App 和命令行里所有给用户看的文字，都通过 `Fmt.swift` 里的 `L
 - `ScannerTests`：克隆和硬链接的计数、折叠和标记位、快照的保存与读回、合成树、firmlinks。
 - `AccountingTests`：同时释放 uv 缓存和 `.venv`。
 - `RecognizerTests`：项目产物和恢复命令、活跃项目不预选、外接磁盘上的项目（不含盘上的点文件夹）、帧只和自己的视频配对、npx 的包、渲染帧序列和相机连拍的区分。
-- `AppTests`：列出哪些应用、哪个文件夹归哪个应用（后缀、带团队 ID 的群组容器、厂商文件夹和通用名字不算）、Homebrew 和系统组件的警告、正在运行的应用不动（被挪到别处运行的副本也算）、亲手勾的应用条目和 7 天规则、应用已经不在时如实报告、公共文件夹受保护。
-- `PrivilegedTests`：以普通用户身份在临时文件夹里检验助手的规则：哪些路径算「应用程序」文件夹里的应用、该拒绝的都拒绝（非管理员、正在运行的应用、SuckMyDisk 自己、不属于调用者的废纸篓）、两边都不跟随符号链接、不覆盖废纸篓里已有的东西，以及执行器只为自己移不动的应用去找助手。
+- `AppTests`：列出哪些应用、哪个文件夹归哪个应用（后缀、带团队 ID 的群组容器、厂商文件夹和通用名字不算）、Homebrew 和系统组件的警告、正在运行的应用不动（被挪到别处运行的副本也算）、应用已经不在时如实报告、公共文件夹受保护。
+- `PrivilegedTests`：以普通用户身份在临时文件夹里检验助手的规则：哪些路径算「应用程序」文件夹里的应用、该拒绝的都拒绝（非管理员、打开着的应用、SuckMyDisk 自己、不属于调用者的废纸篓）、后台程序会被停掉且它的 launchd 任务跟着应用进废纸篓、两边都不跟随符号链接、不覆盖废纸篓里已有的东西、执行器只为自己移不动的应用去找助手，以及只有卸载时才停应用的后台程序。
 - `LargeFileTests`：只列别处没列出的（点文件夹、折叠的依赖、git 跟踪的文件、别的条目和保险库分块都不算）、拆成几片的模型按一个文件夹算、安装包认出对应的应用。
 - `BrowserTests`：Chromium 用户资料逐项清除（下载记录、同步记录、银行卡和搜索引擎保留）、被占着的数据库不动、正在运行的浏览器不动、Firefox 清浏览记录保留书签、报告里的 erase 等级。
-- `SafetyTests`：受保护位置、被包含的项、执行器拒绝受保护路径和 git 跟踪的路径、正在运行的程序在用的文件、7 天规则和什么情况下不受它限制、uv 不再干等别的 uv 进程、Node 脚本在 App 的精简 PATH 下也能找到 `node`。
+- `SafetyTests`：受保护位置、被包含的项、执行器拒绝受保护路径和 git 跟踪的路径、正在运行的程序在用的文件、最近改过也不拦已勾的条目、uv 不再干等别的 uv 进程、Node 脚本在 App 的精简 PATH 下也能找到 `node`。
 - `LiveIndexTests`：打过补丁的树和重新扫描的结果一致、保存后的树能继续增长、大目录排队等待、会弹授权的目录从不被打开、FSEvents 驱动更新。

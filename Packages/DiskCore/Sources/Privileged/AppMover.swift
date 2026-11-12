@@ -19,18 +19,26 @@ public struct AppMover: Sendable {
     /// Whether the person may remove apps here: Finder asks an administrator too.
     public var isAdmin: @Sendable (uid_t) -> Bool
     public var home: @Sendable (uid_t) -> String?
-    /// Whether a program is running from the app.
-    public var isRunning: @Sendable (String) -> Bool
+    /// Whether the app itself is open.
+    public var isOpen: @Sendable (String) -> Bool
+    /// Where the system keeps launchd jobs. Those that run a program from inside the app are
+    /// unloaded before it goes, and their files follow it to the Trash.
+    public var daemonFolders: [String]
+    public var agentFolders: [String]
 
     public init(folders: [String] = ["/Applications"], keptIDs: Set<String> = [Privileged.appID],
                 isAdmin: @escaping @Sendable (uid_t) -> Bool = AppMover.isAdmin,
                 home: @escaping @Sendable (uid_t) -> String? = AppMover.home,
-                isRunning: @escaping @Sendable (String) -> Bool = AppMover.isRunning) {
+                isOpen: @escaping @Sendable (String) -> Bool = AppServices.isOpen,
+                daemonFolders: [String] = ["/Library/LaunchDaemons"],
+                agentFolders: [String] = ["/Library/LaunchAgents"]) {
         self.folders = folders
         self.keptIDs = keptIDs
         self.isAdmin = isAdmin
         self.home = home
-        self.isRunning = isRunning
+        self.isOpen = isOpen
+        self.daemonFolders = daemonFolders
+        self.agentFolders = agentFolders
     }
 
     /// Why `path` can't be an app this helper moves, judged from the text alone.
@@ -51,6 +59,9 @@ public struct AppMover: Sendable {
     }
 
     /// Moves the app at `path` to the Trash of user `uid`; returns where it went.
+    ///
+    /// An app that is open is refused. What it left running in the background (a daemon, an
+    /// agent, a helper program) is stopped first: nobody can quit those by hand.
     public func trash(_ path: String, for uid: uid_t) -> Result<String, Refusal> {
         func no(_ s: String) -> Result<String, Refusal> { .failure(Refusal(s)) }
         if let why = shapeProblem(path) { return no(why) }
@@ -65,13 +76,17 @@ public struct AppMover: Sendable {
                 .lazy.compactMap({ NSDictionary(contentsOfFile: $0) as? [String: Any] }).first,
               let id = info["CFBundleIdentifier"] as? String, !id.isEmpty else { return no("not an app") }
         guard !keptIDs.contains(id) else { return no("SuckMyDisk doesn't remove itself") }
-        guard !isRunning(path) else { return no("the app is running") }
+        guard !isOpen(path) else { return no("the app is open") }
 
         guard let home = home(uid) else { return no("no home folder for user \(uid)") }
         let bin = home + "/.Trash"
         var tst = stat()
         guard lstat(bin, &tst) == 0, (tst.st_mode & S_IFMT) == S_IFDIR, tst.st_uid == uid else { return no("no Trash folder") }
         guard tst.st_dev == st.st_dev else { return no("the Trash is on another disk") }
+
+        let jobs = AppServices.jobs(of: path, daemons: daemonFolders, agents: agentFolders)
+        guard let left = AppServices.stop(path, jobs: jobs, user: uid) else { return no("can't tell what is running") }
+        guard left.isEmpty else { return no("couldn't stop its background program (PID \(left[0]))") }
 
         let file = (path as NSString).lastPathComponent
         let base = (file as NSString).deletingPathExtension
@@ -84,7 +99,19 @@ public struct AppMover: Sendable {
             let dest = bin + "/" + name
             // Never replaces what is there, and fails if any folder on either path is a symlink,
             // so nothing swapped in after the checks above can send the move somewhere else.
-            if renameatx_np(AT_FDCWD, path, AT_FDCWD, dest, UInt32(RENAME_EXCL | RENAME_NOFOLLOW_ANY)) == 0 { return .success(dest) }
+            if renameatx_np(AT_FDCWD, path, AT_FDCWD, dest, UInt32(RENAME_EXCL | RENAME_NOFOLLOW_ANY)) == 0 {
+                // One that launchd started again in the moment before the move: it can't a second time.
+                AppServices.end(in: dest, grace: 1)
+                // The jobs' files go with the app, or launchd would look for it at every start.
+                for job in jobs {
+                    let name = (job.plist as NSString).lastPathComponent
+                    for n in [name, "\(f.string(from: Date())) \(name)"] {
+                        if renameatx_np(AT_FDCWD, job.plist, AT_FDCWD, bin + "/" + n, UInt32(RENAME_EXCL | RENAME_NOFOLLOW_ANY)) == 0
+                            || errno != EEXIST { break }
+                    }
+                }
+                return .success(dest)
+            }
             if errno != EEXIST { return no("rename: \(String(cString: strerror(errno))) (\(errno))") }
         }
         return no("the Trash already has apps with this name")
@@ -111,19 +138,5 @@ public struct AppMover: Sendable {
             let s = String(cString: dir)
             return s.hasPrefix("/") && s.count > 1 ? s : nil
         }
-    }
-
-    /// True if any program's file is inside `app`, or if the programs can't be listed.
-    public static func isRunning(_ app: String) -> Bool {
-        var pids = [pid_t](repeating: 0, count: 16384)
-        let n = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
-        guard n > 0 else { return true }
-        var buf = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        for pid in pids.prefix(Int(n)) where pid > 0 {
-            let len = proc_pidpath(pid, &buf, UInt32(buf.count))
-            guard len > 0 else { continue }
-            if String(decoding: buf.prefix(Int(len)), as: UTF8.self).hasPrefix(app + "/") { return true }
-        }
-        return false
     }
 }

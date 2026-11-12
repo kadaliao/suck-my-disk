@@ -208,8 +208,8 @@ struct SettingsView: View {
         guard helper.available else {
             return L("只有从 GitHub Releases 下载的正式版本带这个助手。", "Only release builds downloaded from GitHub have this helper.")
         }
-        return L("App Store 和安装器装的应用属于系统，移到废纸篓要管理员密码。打开后，SuckMyDisk 会装一个以管理员权限运行的小助手，macOS 只在这时请你确认一次，之后卸载不再弹密码框。助手只做一件事：把“应用程序”文件夹里的应用移到你的废纸篓，而且只听这份 SuckMyDisk 的；随时可以在这里或系统设置里关掉。",
-                 "Apps from the App Store or an installer belong to the system, so moving them to the Trash takes an administrator password. Turned on, SuckMyDisk installs a small helper that runs with administrator rights; macOS asks you to allow it once, and uninstalling no longer brings up a password dialog. The helper does one thing: move apps in the Applications folder to your Trash, and only when this copy of SuckMyDisk asks. Turn it off here or in System Settings at any time.")
+        return L("App Store 和安装器装的应用属于系统，移到废纸篓要管理员密码。打开后，SuckMyDisk 会装一个以管理员权限运行的小助手，macOS 只在这时请你确认一次，之后卸载不再弹密码框。助手只做一件事：把“应用程序”文件夹里的应用移到你的废纸篓（应用留在后台运行的服务会先停掉），而且只听这份 SuckMyDisk 的；随时可以在这里或系统设置里关掉。",
+                 "Apps from the App Store or an installer belong to the system, so moving them to the Trash takes an administrator password. Turned on, SuckMyDisk installs a small helper that runs with administrator rights; macOS asks you to allow it once, and uninstalling no longer brings up a password dialog. The helper does one thing: move apps in the Applications folder to your Trash (stopping first any service the app left running in the background), and only when this copy of SuckMyDisk asks. Turn it off here or in System Settings at any time.")
     }
 
     private var footer: String {

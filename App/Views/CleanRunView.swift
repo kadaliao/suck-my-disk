@@ -87,29 +87,41 @@ private struct CleanRunHeadline: View {
     }
 }
 
-/// Stop while it runs, Done once it has ended.
+/// Stop while it runs, Done once it has ended. Both buttons are always there and the run only
+/// decides which one shows: swapped in and out with `if`, Stop could stay on screen after the
+/// run had ended (the swap happens inside the animation that ends the run), with no Done.
 private struct CleanRunButtons: View {
     @Environment(AppModel.self) private var model
     var run: CleanRun
 
     var body: some View {
-        if run.finished {
-            Button { model.closeCleanRun() } label: {
-                Text(L("完成", "Done")).frame(minWidth: 110)
-            }
-            .buttonStyle(.glassProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-        } else {
+        let finished = run.finished
+        ZStack {
             // Never disabled on the last item: that one may be waiting for Finder's password dialog.
             Button { run.stop() } label: {
                 Text(run.stopping ? L("正在停止…", "Stopping…") : L("停止", "Stop")).frame(minWidth: 110)
             }
             .buttonStyle(.glass)
             .controlSize(.large)
-            .disabled(run.stopping)
+            .disabled(run.stopping || finished)
             .help(L("马上停下：正在清理的这一项会被中断，剩下的不动", "Stops now: the item being cleaned is interrupted and the rest is left alone"))
+            .opacity(finished ? 0 : 1)
+            .allowsHitTesting(!finished)
+            .accessibilityHidden(finished)
+
+            Button { model.closeCleanRun() } label: {
+                Text(L("完成", "Done")).frame(minWidth: 110)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!finished)
+            .opacity(finished ? 1 : 0)
+            .allowsHitTesting(finished)
+            .accessibilityHidden(!finished)
         }
+        // Not part of the animation that ends the run.
+        .transaction { $0.animation = nil }
     }
 }
 

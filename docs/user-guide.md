@@ -277,8 +277,8 @@ folder), files git tracks, folded dependency folders, Photos and other media
 libraries, and the chunks of an encrypted Cryptomator vault.
 
 They are your files: nothing is preselected, and what you pick goes to the
-Trash, where you can put it back. Like your other files they wait out the
-7-day rule even when ticked. A file in iCloud Drive (Desktop and Documents
+Trash, where you can put it back. One that changed in the last 7 days carries
+a warning, and still goes if you tick it. A file in iCloud Drive (Desktop and Documents
 synced with iCloud) carries a warning: moving it to the Trash removes it from
 all your devices.
 
@@ -340,11 +340,14 @@ own folder (`com.microsoft`, say) is never taken for one of its apps.
   Homebrew forgets it and removes its command-line links.
 - Setapp manages it: uninstall it in Setapp, or Setapp may put it back.
 
-**Safety.** Both items are skipped while anything runs from the app, including
-its helpers and a copy macOS runs from a hidden folder; quit it first. Picked
-by hand, they don't wait out the 7-day rule (opening an app changes its
-folders), since "not running" is the check that matters for an app and
-everything goes to the Trash or is rebuilt. If a folder disappeared since the
+**Safety.** Both items are skipped while the app is open (a copy macOS runs
+from a hidden folder counts); quit it first. An app that is closed may still
+have something running in the background (a service started at boot, a helper
+with no menu bar icon) that you can't quit by hand: uninstalling stops those
+first and then moves the app, while its caches item is skipped. A background
+service that runs as root can only be stopped by
+[the helper](#uninstalling-without-a-password); without it the item is
+skipped, and the message says to turn it on. If a folder disappeared since the
 scan (an app tidying its own caches), the rest still goes; if the app itself is
 gone, the item is skipped.
 
@@ -363,13 +366,19 @@ administrator rights. It is kept as small as it can be:
 
 - It does one thing: move an app that is directly in the Applications folder
   (or one folder down) to your own Trash. Not Utilities, not anything macOS
-  protects, not an app that is running, and not SuckMyDisk.
+  protects, not an app that is open, and not SuckMyDisk.
+- Before the move it stops what that app left running in the background (the
+  service a VPN or security tool starts at boot, for one), which would
+  otherwise keep running from the Trash. The launch files in
+  `/Library/LaunchDaemons` and `/Library/LaunchAgents` that point into the
+  app go to your Trash with it.
 - It only answers this copy of SuckMyDisk, checked by its signature, and only
   for an administrator account, as Finder would.
 - It runs only while SuckMyDisk is uninstalling something and quits half a
   minute later.
 - If it can't move an app, SuckMyDisk asks Finder as before, and the journal
-  says why.
+  says why. Not for an app with a background service running as root: Finder
+  can't stop that, so the item fails and says why.
 
 Turn it off with the same switch, or in System Settings. Only builds
 downloaded from GitHub have the helper, and `smd` doesn't use it.
@@ -424,8 +433,7 @@ background after their last window closes). A database still held open is
 left as it was. Records are erased in one transaction, so a database is
 either fully erased or unchanged, and then compacted so they don't linger in
 free space. Only this Mac's copy is erased: with the browser's sync on,
-delete your account's copy online as well. Picked by hand, these items don't
-wait out the 7-day rule (a browser's data always changed this week).
+delete your account's copy online as well.
 
 ## Cleaning up
 
@@ -603,16 +611,12 @@ smd reclaim --add 12,14           # also include items 12 and 14
 smd reclaim --remove 3            # leave item 3 out
 smd reclaim --select 1,2,5        # exactly these items instead of the preselection
 smd reclaim --add 12 --yes        # do it
-smd reclaim --yes --force         # also act on items changed in the last 7 days
 smd reclaim /Volumes/Backup --yes # the preselection on an external disk
 ```
 
 Numbers refer to the last `smd things` report. `reclaim` reuses that report
 for an hour, so run `smd things` again if it has been longer or if the disk
-changed a lot. Items you name with `--select` or `--add` count as ticked by
-hand, so rebuildable ones go even if they changed in the last 7 days.
-`--force` lifts the 7-day rule for every item, your own files included; every
-other safety rule still applies.
+changed a lot.
 
 The output lists each item with what will happen (`delete`, `trash`, or the
 command), then, with `--yes`, the space each one actually freed and the free
@@ -741,14 +745,11 @@ These apply to the app and the CLI alike, and no recognizer can override them.
 - no running program uses it: it is neither where a running program lives nor
   among its arguments (if the running programs can't be listed, nothing is
   deleted). A skipped item names the program and its PID.
-- for an app's items, nothing runs from that app (its main program, helpers,
-  or a copy macOS runs from elsewhere), and the app is still installed
+- for an app's items, the app is not open (a copy macOS runs from elsewhere
+  counts), and it is still installed. What it left running in the background
+  is stopped when uninstalling; its caches item is skipped instead
 - for browser records, the browser is not running, and no program holds the
   database: it must be possible to take an exclusive lock on it
-- it has not changed in the last 7 days, unless it is a rebuildable item, an
-  app's item or browser records you ticked yourself (the CLI's `--force` lifts this one for every item). A
-  skipped item says when it can go: “changed Oct 31, 18:07; can be cleaned
-  after Nov 7, 18:07”.
 - for uv's cache commands, no uv is running. A long-running `uv run` holds the
   cache lock, and `uv cache prune` would wait 5 minutes for it and then fail;
   the item is skipped at once and names that process instead.
@@ -766,7 +767,8 @@ These apply to the app and the CLI alike, and no recognizer can override them.
   the system (App Store, installers) is moved by Finder, which asks for your
   password, or by [the helper](#uninstalling-without-a-password) if you turned
   it on. The helper moves nothing but an app in the Applications folder, and
-  only into your own Trash.
+  only into your own Trash, after stopping what that app left running in the
+  background.
 - When a tool has its own cleanup command, that command runs instead.
 - App data under App data is never deleted; you get instructions. Under Apps,
   an app's data goes only with the whole app, to the Trash, or as its caches.
@@ -867,11 +869,10 @@ its data is shared, or it belongs to a category where nothing is preselected
 (models, image sequences, the whole uv cache, old simulators). You can still
 tick it yourself.
 
-**An item was skipped with "changed …; can be cleaned after …".**
-That rule protects work in progress. It holds back your own files and items
-you didn't tick yourself (preselected ones, in case they changed after the
-scan). Tick a rebuildable item yourself to clean it anyway, or wait until the
-date shown. From the CLI, `--force` lifts the rule.
+**An item says "changed …; make sure you are done with it".**
+A reminder only: it changed in the last 7 days, so you may still be using it.
+It is never preselected, and it is cleaned like anything else once you tick
+it.
 
 **The uv cache was skipped because a uv process is running.**
 A running `uv run` (a long-lived server, say) holds the uv cache lock, and
@@ -890,9 +891,16 @@ Rebuildable items: run the restore command shown in the list, in the journal
 open the Trash and use **Put Back**.
 
 **Uninstall was skipped: "… is running; quit it first".**
-Something from inside the app is still running: the app, a menu bar helper, or
-a background service it started. Quit the app (and its helper, if it has one
-in the menu bar) and try again. The message names the process and its PID.
+The app is still open. Quit it and try again; the message names the process
+and its PID. What stays running after the app is closed (a service started at
+boot, a helper) is stopped for you when uninstalling.
+
+**Uninstall was skipped: "… has a background service running with administrator rights".**
+The app installed a service that runs as root (VPNs and security tools do).
+You can't quit it, and Finder can't stop it. Turn on
+[Uninstall system apps without a password](#uninstalling-without-a-password)
+in Settings and uninstall again: the helper stops the service, then moves the
+app to the Trash.
 
 **Does uninstalling remove everything the app left?**
 Everything SuckMyDisk could match to it in your Library, which is listed under

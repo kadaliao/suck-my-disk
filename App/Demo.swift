@@ -447,7 +447,7 @@ private struct Builder {
         func file(_ rel: String, _ size: Double, _ reason: String, days: Double, warnings: [String] = []) -> ReclaimItem {
             let path = h + "/" + rel
             var w = warnings
-            if days < 7 { w.append(Guards.waitNote(changed: ago(days))) }
+            if days < 7 { w.append(Guards.recentNote(changed: ago(days))) }
             return ReclaimItem(id: "large:" + path, label: (path as NSString).lastPathComponent, path: path, bytes: gb(size),
                                tier: .yours, action: .trash(path: path), restore: L("从废纸篓放回", "put back from the Trash"),
                                reason: reason + L(" · 修改于 \(Fmt.ago(ago(days)))", " · modified \(Fmt.ago(ago(days)))"),

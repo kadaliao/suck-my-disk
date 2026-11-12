@@ -1,6 +1,7 @@
 import Darwin
 import DiskIndex
 import Foundation
+import Privileged
 import Recognizers
 
 /// Carries out reclaim items one by one, re-checking every safety rule right
@@ -17,16 +18,19 @@ public final class Executor {
     public enum Status: String, Sendable { case done, skipped, failed, stopped }
 
     let store: Store?
-    let force: Bool
-    let chosen: Set<String>
     let log: (String) -> Void
     /// Told when a step waits for the person (Finder asking for a password); nil sends it to `log`.
     let note: ((String) -> Void)?
     /// Asked before every step and while a command runs: true stops the run there.
     let isCancelled: () -> Bool
-    /// Moves an app that belongs to the system to the Trash without asking for a password
-    /// (the app's helper); returns nil when it did, or why it couldn't. Nil: there is none.
+    /// Moves an app that belongs to the system to the Trash without asking for a password,
+    /// stopping first what it left running as root (the app's helper); returns nil when it
+    /// did, or why it couldn't. Nil: there is none.
     let elevate: ((String) -> String?)?
+    /// Where the person's launchd agents are kept: theirs, and the ones for every user.
+    let agentFolders: [String]
+    /// Apps of the current item that only the helper can move: something of theirs runs as root.
+    private var rootOnly: Set<String> = []
     /// Things worth keeping in the journal about the current item, whatever its outcome.
     private var remarks: [String] = []
     /// Rows the current item's `.erase` actions removed.
@@ -35,18 +39,16 @@ public final class Executor {
     private var stopped = false
     private var finished = 0
 
-    /// `force` lifts the 7-day rule for every item. `chosen` holds the items the person picked
-    /// themselves: the regenerable ones among them skip the rule too, since they asked for it and
-    /// nothing is lost that can't be rebuilt. Preselected items keep it, so anything that changed
-    /// after the scan is left alone.
-    public init(store: Store?, force: Bool = false, chosen: Set<String> = [],
+    /// Whatever is handed over is cleaned unless a safety rule says no. How recently an item
+    /// changed is not one of them: that only decides what the recognizers tick by default.
+    public init(store: Store?,
                 log: @escaping (String) -> Void = { print($0) },
                 note: ((String) -> Void)? = nil,
                 isCancelled: @escaping () -> Bool = { false },
-                elevate: ((String) -> String?)? = nil) {
+                elevate: ((String) -> String?)? = nil,
+                agentFolders: [String] = [NSHomeDirectory() + "/Library/LaunchAgents", "/Library/LaunchAgents"]) {
         self.store = store
-        self.force = force
-        self.chosen = chosen
+        self.agentFolders = agentFolders
         self.log = log
         self.note = note
         self.isCancelled = isCancelled
@@ -86,7 +88,7 @@ public final class Executor {
     }
 
     /// `programs`: what is running, nil if that couldn't be read.
-    func check(_ path: String, programs: [Guards.Program]?, recentOK: Bool) -> String? {
+    func check(_ path: String, programs: [Guards.Program]?) -> String? {
         if Guards.isDenied(path) { return L("受保护的位置", "protected location") }
         var st = stat()
         guard lstat(path, &st) == 0 else { return L("已经不存在", "no longer exists") }
@@ -98,7 +100,6 @@ public final class Executor {
         if let p = Guards.program(using: path, in: programs) {
             return L("\(p.summary)（PID \(p.pid)）正在用", "in use by \(p.summary) (PID \(p.pid))")
         }
-        if !recentOK, let d = Guards.recentChange(path) { return Guards.waitNote(changed: d) }
         return nil
     }
 
@@ -146,24 +147,48 @@ public final class Executor {
         if let app = item.app, !Self.exists(app) || !acts {
             return finish(item, .skipped, 0, L("\(Fmt.home(app)) 已经不在了", "\(Fmt.home(app)) is no longer there"), before: 0, after: 0)
         }
-        let programs = acts ? Guards.runningPrograms() : []
-        // Picked by hand, rebuildable items, erased records and an app's items don't wait out the 7-day rule:
-        // a browser's history always changed this week.
-        let recentOK = force || (chosen.contains(item.id) && (item.tier == .regenerable || item.tier == .erase || item.app != nil))
+        var programs = acts ? Guards.runningPrograms() : []
+        /// The app whose background programs this item stops before it goes.
+        var stopping: String?
+        rootOnly = []
         if let app = item.app {
             let name = ((app as NSString).lastPathComponent as NSString).deletingPathExtension
-            guard let programs else {
+            guard let all = programs else {
                 return finish(item, .skipped, 0, L("没法确认 \(name) 有没有在运行", "can't tell whether \(name) is running"), before: 0, after: 0)
             }
-            if let p = Guards.program(inApp: app, in: programs) {
+            let mine = Guards.programs(inApp: app, in: all)
+            if let p = Guards.mainProgram(ofApp: app, in: mine) {
                 return finish(item, .skipped, 0,
                               L("\(name) 正在运行（\(p.summary)，PID \(p.pid)），先退出它",
                                 "\(name) is running (\(p.summary), PID \(p.pid)); quit it first"),
                               before: 0, after: 0)
             }
+            // The app is closed, but something of it still runs: a daemon, an agent, a helper.
+            // Nobody can quit those by hand, so uninstalling stops them. Its caches alone don't.
+            if let p = mine.first {
+                guard paths.contains(app) else {
+                    return finish(item, .skipped, 0,
+                                  L("\(name) 的后台程序还在运行（\(p.summary)，PID \(p.pid)），它在用的缓存不动",
+                                    "a background program of \(name) is still running (\(p.summary), PID \(p.pid)), so its caches are left alone"),
+                                  before: 0, after: 0)
+                }
+                // Somebody else's (root's daemon) takes the helper to stop.
+                if let r = mine.first(where: { $0.uid != getuid() }) {
+                    guard elevate != nil else {
+                        return finish(item, .skipped, 0,
+                                      L("\(name) 有后台服务以管理员权限在运行（\(r.summary)，PID \(r.pid)），要先停掉它才能卸载：在 SuckMyDisk 的设置里打开「卸载系统应用时不用输密码」，再试一次",
+                                        "\(name) has a background service running with administrator rights (\(r.summary), PID \(r.pid)) that must be stopped first: turn on “Uninstall system apps without a password” in SuckMyDisk's Settings and try again"),
+                                      before: 0, after: 0)
+                    }
+                    rootOnly.insert(app)
+                }
+                stopping = app
+                let pids = Set(mine.map(\.pid))
+                programs = all.filter { !pids.contains($0.pid) }
+            }
         }
         for p in paths {
-            if let why = check(p, programs: programs, recentOK: recentOK) {
+            if let why = check(p, programs: programs) {
                 return finish(item, .skipped, 0, "\(Fmt.home(p)): \(why)", before: 0, after: 0)
             }
         }
@@ -177,6 +202,20 @@ public final class Executor {
                 return finish(item, .skipped, 0,
                               L("\(p.summary)（PID \(p.pid)）还在运行，\(argv[0]) 要等它退出才能清缓存",
                                 "\(p.summary) (PID \(p.pid)) is still running; \(argv[0]) can't clean its cache until it exits"),
+                              before: 0, after: 0)
+            }
+        }
+        if let app = stopping {
+            let name = ((app as NSString).lastPathComponent as NSString).deletingPathExtension
+            let line = L("正在停掉 \(name) 的后台程序", "Stopping \(name)'s background programs")
+            if let note { note(line) } else { log("  " + line) }
+            let jobs = AppServices.jobs(of: app, daemons: [], agents: agentFolders)
+            let left = AppServices.stop(app, jobs: jobs, user: getuid())
+            // What is left is root's, and the helper's to stop; anything else wouldn't go.
+            if left == nil || (left?.isEmpty == false && !rootOnly.contains(app)) {
+                return finish(item, .skipped, 0,
+                              L("\(name) 的后台程序停不掉\(left?.first.map { "（PID \($0)）" } ?? "")",
+                                "couldn't stop \(name)'s background programs\(left?.first.map { " (PID \($0))" } ?? "")"),
                               before: 0, after: 0)
             }
         }
@@ -234,6 +273,15 @@ public final class Executor {
             return nil
         case .trash(let p):
             log("  trash  " + Fmt.home(p))
+            // Something of it runs as root: only the helper can stop that, so only it moves the app.
+            // Moved by anyone else, the service would keep running from the Trash.
+            if rootOnly.contains(p), let elevate {
+                log("  helper  " + Fmt.home(p))
+                let why = elevate(p) ?? (Self.exists(p) ? "still there" : nil)
+                guard let why else { return nil }
+                if isCancelled() { return halt() }
+                return L("卸载助手没能卸载它：\(why)", "the helper couldn't uninstall it: \(why)")
+            }
             do {
                 try FileManager.default.trashItem(at: URL(fileURLWithPath: p), resultingItemURL: nil)
                 return nil

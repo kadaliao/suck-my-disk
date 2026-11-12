@@ -110,8 +110,7 @@ public struct ReclaimItem: Codable, Sendable, Identifiable {
     /// Items this one already includes; selecting it makes them redundant.
     public var covers: [String] = []
     /// The installed app (its bundle path) this item belongs to. Clean Up skips the item while
-    /// anything runs from that app. Picked by hand, it doesn't wait out the 7-day rule:
-    /// "not running" is the check that matters for an app, and what goes is rebuilt or trashed.
+    /// that app is open; uninstalling stops what it left running in the background.
     public var app: String?
     /// How many records an `.erase` item clears (history entries, cookies), when known.
     /// Shown instead of a size: erasing records frees next to nothing.

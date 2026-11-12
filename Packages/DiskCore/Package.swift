@@ -14,7 +14,7 @@ let package = Package(
         .target(name: "DiskIndex", dependencies: ["CFastScan"], linkerSettings: [.linkedLibrary("sqlite3")]),
         .target(name: "Insights", dependencies: ["DiskIndex"]),
         .target(name: "Recognizers", dependencies: ["DiskIndex", "Insights"]),
-        .target(name: "Reclaim", dependencies: ["DiskIndex", "Recognizers"]),
+        .target(name: "Reclaim", dependencies: ["DiskIndex", "Recognizers", "Privileged"]),
         .target(name: "Update", dependencies: ["DiskIndex"]),
         // What the root helper is made of: it depends on nothing else here.
         .target(name: "Privileged"),

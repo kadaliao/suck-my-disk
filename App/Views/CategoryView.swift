@@ -78,8 +78,8 @@ struct CategoryView: View {
         case .devCache: return L("各种工具的下载缓存。能用工具自己的清理命令就用它，它最清楚哪些还在用。",
                                  "Download caches of developer tools. When a tool has its own cleanup command we use it: it knows what is still in use.")
         case .model: return L("本地模型。删掉以后可以重新下载，默认都不勾。", "Local models. They can be downloaded again; nothing is preselected.")
-        case .app: return L("装在「应用程序」里的应用，连同它们放在资源库里的数据。可以整个卸载（应用和数据一起进废纸篓，能放回），也可以保留应用、只删它会自己重建的缓存。正在运行的应用不会动，默认都不勾。",
-                            "Apps in Applications, with the data they keep in your Library. Uninstall one (the app and its data go to the Trash, where you can put them back), or keep it and delete only the caches it rebuilds. Running apps are left alone; nothing is preselected.")
+        case .app: return L("装在「应用程序」里的应用，连同它们放在资源库里的数据。可以整个卸载（应用和数据一起进废纸篓，能放回），也可以保留应用、只删它会自己重建的缓存。打开着的应用不会动，默认都不勾。",
+                            "Apps in Applications, with the data they keep in your Library. Uninstall one (the app and its data go to the Trash, where you can put them back), or keep it and delete only the caches it rebuilds. Apps that are open are left alone; nothing is preselected.")
         case .appData: return L("这些数据属于各个应用，直接删会出问题。这里告诉你在应用里怎么清。", "This data belongs to apps and must be cleaned from inside them. Here's how.")
         case .largeFile: return L("个人文件夹里别处没列出的大文件：安装包、视频、磁盘映像、压缩包、模型权重…（资源库和以点开头的文件夹属于应用和工具，不在这里）。它们是你的文件：都不勾，选中的移到废纸篓，可以放回；git 跟踪的不列出。",
                                   "Big files in your home folder that nothing else lists: installers, videos, disk images, archives, model weights… (your Library and dot folders belong to apps and tools, so they're left out). They're your files: nothing is ticked, and what you pick goes to the Trash, where you can put it back. Files git tracks aren't listed.")

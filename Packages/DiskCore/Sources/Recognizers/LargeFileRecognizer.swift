@@ -170,8 +170,8 @@ public enum LargeFileRecognizer {
         if g == .vm {
             warnings.append(L("虚拟机的整块磁盘：确认里面没有要留的东西", "A whole virtual machine disk: make sure nothing in it is still needed"))
         }
-        // Your files keep the 7-day rule even when ticked.
-        if let d = Guards.recentChange(path, now: ctx.now) { warnings.append(Guards.waitNote(changed: d)) }
+        // Still being worked on, perhaps: said on the item, and it goes if ticked all the same.
+        if let d = Guards.recentChange(path, now: ctx.now) { warnings.append(Guards.recentNote(changed: d)) }
 
         var item = ReclaimItem(id: "large:" + path, label: name, path: path, bytes: tree.size(j), estimate: n.t_alloc,
                                tier: .yours, action: .trash(path: path), restore: L("从废纸篓放回", "put back from the Trash"),

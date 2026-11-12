@@ -10,7 +10,7 @@ import Reclaim
 //   smd scan [paths…] [--threads N]      full scan (default: whole data volume), saves the index
 //   smd top [path] [-n N]                biggest items under a path, from the index
 //   smd things [disk] [--rescan] [--json] what is using space and what can be reclaimed
-//   smd reclaim [disk] [--select 1,2] [--add 3] [--remove 4] [--yes] [--force]
+//   smd reclaim [disk] [--select 1,2] [--add 3] [--remove 4] [--yes]
 //                                        disk: an external disk's mount point, /Volumes/<name>
 //   smd hibernate <project> [--yes]      delete a project's rebuildable artifacts
 //   smd wake <project>                   show how to restore a hibernated project
@@ -276,8 +276,7 @@ final class StopOnInterrupt: @unchecked Sendable {
     var requested: Bool { lock.withLock { asked } }
 }
 
-/// `chosen`: items the person named with --select or --add.
-func runPlan(_ items: [ReclaimItem], execute: Bool, disk: ExternalVolume? = nil, chosen: Set<String> = []) {
+func runPlan(_ items: [ReclaimItem], execute: Bool, disk: ExternalVolume? = nil) {
     let total = items.reduce(UInt64(0)) { $0 + $1.estimate }
     print(L("计划腾出 ≈ \(Fmt.bytes(total))，共 \(items.count) 项：", "Plan frees ≈ \(Fmt.bytes(total)) in \(items.count) items:"))
     for i in items {
@@ -303,7 +302,7 @@ func runPlan(_ items: [ReclaimItem], execute: Bool, disk: ExternalVolume? = nil,
     print("")
     let store = try? Store()
     let stop = StopOnInterrupt()
-    let ex = Executor(store: store, force: args.has("force"), chosen: chosen, isCancelled: { stop.requested })
+    let ex = Executor(store: store, isCancelled: { stop.requested })
     let mount = disk?.path ?? Firmlinks.dataRoot
     let before = VolumeInfo.freeBytes(mount)
     var done = 0
@@ -390,20 +389,18 @@ case "reclaim":
     guard let report = current else { exit(1) }
     let numbered = numberItems(report)
     var selected: Set<String>
-    var chosen: Set<String> = []
     if let sel = args.values["select"] {
         let nums = Set(sel.split(separator: ",").compactMap { Int($0) })
         selected = Set(numbered.filter { nums.contains($0.number) }.map(\.item.id))
-        chosen = selected
     } else {
         selected = Set(numbered.filter(\.item.preselected).map(\.item.id))
     }
     for n in args.ints("add") {
-        if let x = numbered.first(where: { $0.number == n }) { selected.insert(x.item.id); chosen.insert(x.item.id) }
+        if let x = numbered.first(where: { $0.number == n }) { selected.insert(x.item.id) }
     }
     for n in args.ints("remove") { if let x = numbered.first(where: { $0.number == n }) { selected.remove(x.item.id) } }
     let plan = Planner.plan(things: report.things, selected: selected)
-    runPlan(plan.items, execute: args.has("yes"), disk: disk, chosen: chosen)
+    runPlan(plan.items, execute: args.has("yes"), disk: disk)
 
 case "hibernate":
     guard let target = args.positional.first.map({ (($0 as NSString).expandingTildeInPath as NSString).standardizingPath }) else {
@@ -415,7 +412,7 @@ case "hibernate":
     }
     let items = project.items.filter { $0.tier == .regenerable }
     print(L("休眠 \(project.title)：删除可再生的产物，源码和 git 不动。", "Hibernating \(project.title): rebuildable artifacts only; source and git stay."))
-    runPlan(items, execute: args.has("yes"), chosen: Set(items.map(\.id)))   // named by hand
+    runPlan(items, execute: args.has("yes"))
 
 case "wake":
     guard let target = args.positional.first.map({ (($0 as NSString).expandingTildeInPath as NSString).standardizingPath }) else {
@@ -485,7 +482,7 @@ case "uninstall":
     if !keep, case .compound(let acts)? = items.first?.action {
         for case .trash(let p) in acts.dropFirst() { print("    " + Fmt.home(p)) }
     }
-    runPlan(items, execute: args.has("yes"), chosen: Set(items.map(\.id)))   // named by hand
+    runPlan(items, execute: args.has("yes"))
 
 case "journal":
     let store = try Store()

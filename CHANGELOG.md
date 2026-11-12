@@ -21,6 +21,27 @@ All notable changes to SuckMyDisk. The format follows
   is off until you turn it on; if it can't move an app, Finder is asked as
   before. `smd` keeps using Finder.
 
+### Changed
+
+- **What is ticked gets cleaned: no more "changed in the last 7 days".**
+  Clean Up used to skip items changed in the last 7 days ("changed …; can be
+  cleaned after …"), even the pip cache it had ticked itself: a download
+  cache changes every time it is used, so the day never came. How recently
+  something changed now only decides what is ticked by default (artifacts of
+  active projects and freshly rendered frames are not), and your own files
+  carry a warning when they changed this week; every ticked item is cleaned.
+  The CLI's `--force`, which lifted only that rule, is gone.
+- **Uninstalling stops what the app left running in the background.** VPNs
+  and security tools install a service that starts at boot, keeps running
+  after the app is closed, and can't be quit by hand; uninstalling was
+  skipped with "is running; quit it first", helper or no helper. Now only an
+  app that is open has to be quit first, and what it left in the background
+  is stopped as part of the uninstall. A service that runs as root is stopped
+  by the uninstall helper (Settings → Uninstall system apps without a
+  password), and the launch files in `/Library/LaunchDaemons` and
+  `/Library/LaunchAgents` that point into the app go to the Trash with it;
+  without the helper the item is skipped and says to turn it on.
+
 ### Fixed
 
 - Uninstalling an app that belongs to the system (App Store, installers)

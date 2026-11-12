@@ -3,7 +3,8 @@ import Security
 
 /// What the app and its helper agree on. The helper is a small program that runs as root, so
 /// that uninstalling an app that belongs to the system needs no password each time. It does
-/// one thing: move an app from /Applications to the Trash of the person who asked.
+/// one thing: move an app from /Applications to the Trash of the person who asked, stopping
+/// first what that app left running in the background.
 public enum Privileged {
     public static let appID = "com.kadaliao.SuckMyDisk"
     /// The helper's launchd label, Mach service and signing identifier.
@@ -12,7 +13,7 @@ public enum Privileged {
     public static let plistName = helperID + ".plist"
     /// Raised when the messages change. A helper still running from before an update answers
     /// with its own number, is told to quit, and launchd starts the new one.
-    public static let version = 1
+    public static let version = 2
 
     /// The team that signed this program, or nil for an unsigned or ad hoc build.
     public static func ownTeam() -> String? {
@@ -37,7 +38,8 @@ public enum Privileged {
 @objc public protocol HelperProtocol {
     /// The helper's `Privileged.version`.
     func hello(reply: @escaping @Sendable (Int) -> Void)
-    /// Moves the app at `path` to the caller's Trash. `ok` false: nothing was moved and
+    /// Moves the app at `path` to the caller's Trash, after stopping its background programs
+    /// (its launchd jobs' files go to the Trash with it). `ok` false: nothing was moved and
     /// `message` says why; true: `message` is where it went.
     func trashApp(_ path: String, reply: @escaping @Sendable (Bool, String) -> Void)
     /// Ends the helper; launchd starts it again when it is next needed.

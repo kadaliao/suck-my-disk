@@ -71,8 +71,8 @@ public enum FrameSequenceRecognizer {
                     bytes: bytes, tier: .yours, action: .trash(path: path), restore: nil,
                     reason: L("像渲染帧，但没找到对应的成片，按你的文件处理", "looks like frames, but no matching final video was found"),
                     preselected: false)
-                // Your files keep the 7-day rule even when ticked.
-                if let d = Guards.recentChange(path, now: ctx.now) { item.warnings.append(Guards.waitNote(changed: d)) }
+                // Still being worked on, perhaps: said on the item, and it goes if ticked all the same.
+                if let d = Guards.recentChange(path, now: ctx.now) { item.warnings.append(Guards.recentNote(changed: d)) }
             }
             groups[scope.path, default: []].append(item)
             groupBytes[scope.path, default: 0] += bytes

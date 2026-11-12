@@ -158,7 +158,7 @@ func rows(_ path: String, _ table: String, where w: String? = nil) -> Int {
         // History: visits, addresses and searches go; downloads, sync bookkeeping and the schema stay.
         let p = f.path("support/Google/Chrome/Default")
         let picked = Set(me.items.map(\.id))
-        let ex = Executor(store: nil, chosen: picked, log: { _ in })
+        let ex = Executor(store: nil, log: { _ in })
         let h = ex.run([items["history"]!])[0]
         #expect(h.status == .done, "\(h.message)")
         #expect(rows(p + "/History", "urls") == 0 && rows(p + "/History", "visits") == 0)
@@ -187,7 +187,7 @@ func rows(_ path: String, _ table: String, where w: String? = nil) -> Int {
         var db: OpaquePointer?
         #expect(sqlite3_open(f.path("support/Chromium/Default/Cookies"), &db) == SQLITE_OK)
         #expect(sqlite3_exec(db, "PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE; SELECT count(*) FROM cookies;", nil, nil, nil) == SQLITE_OK)
-        let o = Executor(store: nil, chosen: [cookies.id], log: { _ in }).run([cookies])[0]
+        let o = Executor(store: nil, log: { _ in }).run([cookies])[0]
         sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
         sqlite3_close(db)
         #expect(o.status == .failed && o.message.contains(L("占用", "in use")))
@@ -208,7 +208,7 @@ func rows(_ path: String, _ table: String, where w: String? = nil) -> Int {
         #expect(t.detail == nil && t.items.allSatisfy { $0.app == bundle })
         let history = try #require(t.items.first { $0.id.hasPrefix("browser:history:") })
         let running = try f.runningProgram(using: "Apps/Google Chrome.app/Contents/Frameworks/helper")
-        let o = Executor(store: nil, chosen: [history.id], log: { _ in }).run([history])[0]
+        let o = Executor(store: nil, log: { _ in }).run([history])[0]
         running.terminate()
         running.waitUntilExit()
         #expect(o.status == .skipped && o.message.contains("Google Chrome"))
@@ -251,7 +251,7 @@ func rows(_ path: String, _ table: String, where w: String? = nil) -> Int {
         let history = try #require(t.items.first { $0.id.hasPrefix("browser:history:") })
         #expect(history.records == 2)
         #expect(t.items.contains { $0.id.hasPrefix("browser:cache:") && $0.tier == .regenerable })
-        let o = Executor(store: nil, chosen: [history.id], log: { _ in }).run([history])[0]
+        let o = Executor(store: nil, log: { _ in }).run([history])[0]
         #expect(o.status == .done, "\(o.message)")
         let places = p + "/places.sqlite"
         #expect(rows(places, "moz_historyvisits") == 0 && rows(places, "moz_inputhistory") == 0 && rows(places, "moz_annos") == 0)
