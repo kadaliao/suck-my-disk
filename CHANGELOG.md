@@ -8,6 +8,16 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The timeline breaks a day down thing by thing.** Below the charts, each
+  project, render folder, dev cache, model and app data folder shows what it
+  used that day and how much it grew or shrank since the last day before it
+  with a record, biggest changes first, so you can tell which project or cache
+  grew. Things that are new that day, or gone since the day before, are
+  marked. It starts on the latest day; click a bar to pick another. It reads
+  the history SuckMyDisk already keeps, so earlier days can be opened too.
+
 ## [0.6.4] - 2026-11-12
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and

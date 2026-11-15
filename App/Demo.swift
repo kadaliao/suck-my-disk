@@ -9,6 +9,8 @@ struct DemoData {
     var report: Report
     var tree: ScanTree?
     var history: [ReportStore.DayPoint]
+    /// The same days thing by thing, for the timeline's breakdown.
+    var thingHistory: [ReportStore.ThingPoint]
     var volume: VolumeInfo
     var userFiles: UInt64
     var applications: UInt64
@@ -38,7 +40,8 @@ struct DemoData {
 
         let report = Report(createdAt: now.addingTimeInterval(-4 * 60), volumeTotal: volume.total,
                             volumeFree: volume.free, scanned: volume.dataUsed - hidden, things: b.things)
-        return DemoData(report: report, tree: b.tree(), history: b.history(free: volume.free), volume: volume,
+        let history = b.history(free: volume.free)
+        return DemoData(report: report, tree: b.tree(), history: history.kinds, thingHistory: history.things, volume: volume,
                         userFiles: gb(262), applications: gb(62), external: externalDisk(now: now))
     }
 
@@ -653,22 +656,50 @@ private struct Builder {
         return ScanTree.synthetic(root: h, folders: folders, folded: folded, modified: ago(1))
     }
 
-    /// Two weeks of growth, ending at today's numbers.
-    func history(free: UInt64) -> [ReportStore.DayPoint] {
+    /// Two weeks of growth thing by thing, ending at today's numbers. The chart's bars are
+    /// their sums, so a day's bars and its breakdown agree.
+    func history(free: UInt64) -> (kinds: [ReportStore.DayPoint], things: [ReportStore.ThingPoint]) {
         let kinds: [ThingKind] = [.project, .media, .devCache, .model, .appData]
+        // A cache cleaned up today: only the older days have it.
+        let shown = things.filter { kinds.contains($0.kind) }
+            + [Thing(id: "cache:yarn", kind: .devCache, title: "Yarn cache", path: h + "/Library/Caches/Yarn", bytes: gb(3.8))]
         var out: [ReportStore.DayPoint] = []
+        var rows: [ReportStore.ThingPoint] = []
         let days = 14
         for d in 0..<days {
-            let day = Store.today(ago(Double(days - 1 - d)))
-            let f = Double(d) / Double(days - 1)
-            for (k, kind) in kinds.enumerated() {
-                let total = things.filter { $0.kind == kind }.reduce(UInt64(0)) { $0 + $1.bytes }
-                let wobble = 0.03 * sin(Double(d * (k + 2)))
-                out.append(.init(day: day, kind: kind.rawValue, bytes: UInt64(Double(total) * (0.74 + 0.26 * f + wobble))))
+            let back = days - 1 - d
+            let day = Store.today(ago(Double(back)))
+            for (i, t) in shown.enumerated() {
+                guard let s = share(t, i, back: back) else { continue }
+                rows.append(.init(day: day, thingID: t.id, kind: t.kind.rawValue, title: t.title, bytes: UInt64(Double(t.bytes) * s)))
             }
+            for kind in kinds {
+                let total = rows.filter { $0.day == day && $0.kind == kind.rawValue }.reduce(UInt64(0)) { $0 + $1.bytes }
+                if total > 0 { out.append(.init(day: day, kind: kind.rawValue, bytes: total)) }
+            }
+            let f = Double(d) / Double(days - 1)
             let freeGB = Double(free) / 1e9 + 78 * (1 - f) + 4 * sin(Double(d))
             out.append(.init(day: day, kind: "free", bytes: UInt64(freeGB * 1e9)))
         }
-        return out
+        return (out, rows)
+    }
+
+    /// A thing's size `back` days ago as a share of today's; nil when it wasn't there yet (or anymore).
+    private func share(_ t: Thing, _ i: Int, back: Int) -> Double? {
+        let w = "project:" + h + "/workspace/"
+        switch t.id {
+        case "model:ollama": return back == 0 ? 1 : back < 9 ? 0.875 : 0.76   // models pulled today and 9 days ago
+        case "model:hf": return back < 6 ? 1 : 0.7
+        case "cache:yarn": return back == 0 ? nil : 1
+        case w + "agent-playground": return back < 3 ? [1, 0.55, 0.3][back] : nil   // started 3 days ago
+        case w + "storyboard-ai": return back < 2 ? 1 : 0.62
+        case w + "comfy-workflows": return back < 9 ? 1 : 0.8
+        case "media:" + h + "/Movies/promo-video": return back <= 8 ? 1 : nil
+        case "media:" + h + "/workspace/explainer-ep3": return back <= 1 ? 1 : nil   // rendered yesterday
+        default:
+            // Projects nobody works on keep their size; caches, models and app data creep up.
+            if t.kind == .project { return 1 }
+            return 1 - [0.04, 0.18, 0.3, 0.1, 0.4, 0.22][i % 6] * Double(back) / 13
+        }
     }
 }
