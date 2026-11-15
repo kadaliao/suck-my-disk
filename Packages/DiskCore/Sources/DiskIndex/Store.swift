@@ -33,7 +33,8 @@ public final class Store: @unchecked Sendable {
     private let lock = NSLock()
 
     public init(url: URL = AppPaths.databaseURL) throws {
-        try AppPaths.ensure()
+        // The database's own folder: a test's store stays out of the real support folder.
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if sqlite3_open(url.path, &db) != SQLITE_OK {
             throw StoreError.sqlite(String(cString: sqlite3_errmsg(db)))
         }

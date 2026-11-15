@@ -205,7 +205,10 @@ final class AppModel {
     var showDiskMap = false
     /// The Clean Up run on screen. It stays after the run ends, as the result, until closed.
     var cleanRun: CleanRun?
-    var history: [ReportStore.DayPoint] = []
+    var history: [ReportStore.DayPoint] = [] { didSet { loadDayDetail() } }
+    /// The day the timeline breaks down thing by thing; nil follows the latest.
+    var timelineDay: String? { didSet { loadDayDetail() } }
+    var dayDetail: ReportStore.DayDetail?
     /// Documents, Downloads, Pictures… minus the things already counted inside them.
     var userFiles: UInt64 = 0
     var applications: UInt64 = 0
@@ -326,6 +329,12 @@ final class AppModel {
         setReport(d.report, tree: d.tree)
         liveState = .live
         phase = .idle
+    }
+
+    /// Reloaded with the history: today's row of a thing changes with every recognition.
+    private func loadDayDetail() {
+        guard let day = timelineDay ?? history.map(\.day).max() else { dayDetail = nil; return }
+        dayDetail = demo.map { ReportStore.detail(day: day, rows: $0.thingHistory) } ?? ReportStore.detail(day: day)
     }
 
     func measureFolders() {

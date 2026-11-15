@@ -510,6 +510,18 @@ How much each category used, per day, as stacked bars, with free space as a
 line underneath. A point is recorded every time recognition runs (at most one
 per category per day), so the chart becomes useful after a few days of use.
 
+Below the charts, one day is broken down thing by thing: each project, render
+folder, dev cache, model and app data folder, what it used that day, and how
+much it grew or shrank since the last day before it with a record. The biggest
+changes come first, so you can see which project or cache grew. The latest day
+is shown first; click a bar to pick another. Things that weren't there the day
+before are marked *new*; things that were there the day before but not anymore
+are listed as *gone*. Each group shows its top five; click a group's name to
+fold it, or *more…* to see the rest.
+
+The history keeps one size per thing per day, so changes within a day don't
+show, and it starts on the day of your first scan.
+
 ## Menu bar
 
 The menu bar shows free space. Click it for a small panel with free space, the
