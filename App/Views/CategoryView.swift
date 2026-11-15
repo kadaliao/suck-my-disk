@@ -148,7 +148,7 @@ struct ThingRow: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if thing.kind != .appData {
-                        ForEach(thing.items) { ItemRow(item: $0) }
+                        ForEach(thing.items) { ItemRow(item: $0, cover: thing.kind == .largeFile ? LargeFileIcon.symbol(thing.id) : nil) }
                     }
                 }
                 .padding(.bottom, 6)
@@ -200,6 +200,8 @@ struct ItemRow: View {
     @Environment(AppModel.self) private var model
     @Environment(Helper.self) private var helper
     var item: ReclaimItem
+    /// Large files: the file's cover, with this symbol until it is ready.
+    var cover: String?
 
     /// The password warning goes once the helper is on, and points to Settings while it is off.
     private var warnings: [String] {
@@ -221,6 +223,9 @@ struct ItemRow: View {
             .buttonStyle(.plain)
             .disabled(item.tier == .guide)
             .opacity(item.tier == .guide ? 0 : 1)
+            if let cover {
+                FileThumbnail(path: item.path, side: 32, symbol: cover, tint: ThingKind.largeFile.color)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(item.label).lineLimit(1)

@@ -24,6 +24,15 @@ public struct Report: Codable, Sendable {
     public var preselected: UInt64 {
         Planner.plan(things: things, selected: nil).freed
     }
+
+    /// The items that act on exactly this path (as their own path or one their action removes),
+    /// with the thing each is in: what the map can add to Clean Up. Never a prefix match: a file
+    /// inside a project's node_modules is not that item. Guide items can't be selected.
+    public static func items(at path: String, in things: [Thing]) -> [(thing: Thing, item: ReclaimItem)] {
+        things.flatMap { t in
+            t.items.filter { $0.tier < .guide && ($0.path == path || $0.action.paths.contains(path)) }.map { (t, $0) }
+        }
+    }
 }
 
 /// Runs every recognizer over a tree.

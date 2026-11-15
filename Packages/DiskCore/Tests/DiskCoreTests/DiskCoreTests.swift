@@ -358,6 +358,44 @@ final class Fixture {
         for i in 0..<320 { try f.png(String(format: "comfy/ComfyUI_%05d_.png", i)) }
         #expect(FrameSequenceRecognizer.inspect(f.path("comfy")) == nil)
     }
+
+    /// The map offers Clean Up only for a block that is itself a listed item, or that an item's
+    /// action removes; never for what is inside one, a thing's own folder, or a guide.
+    @Test func mapAddsOnlyListedItems() throws {
+        let f = try Fixture()
+        try f.file("proj/.git/HEAD", text: "ref")
+        try f.file("proj/package.json", text: "{}")
+        try f.file("proj/pnpm-lock.yaml", text: "lock")
+        try f.file("proj/node_modules/x/big.bin", mb: 30)
+        try f.file("Movies/clip.mov", mb: 3)
+        f.age(days: 120)
+        let tree = f.scan()
+        let ctx = context(tree)
+        let (projects, _) = ProjectRecognizer.recognize(ctx)
+        let large = LargeFileRecognizer.recognize(ctx, covered: projects.flatMap { $0.items.compactMap(\.path) }, apps: [],
+                                                  minBytes: 2_000_000)
+        let app = f.path("Apps/Foo.app"), data = f.path("Library/Foo")
+        let uninstall = ReclaimItem(id: "apps:uninstall:" + app, label: "Uninstall Foo", path: app, bytes: 2, tier: .yours,
+                                    action: .compound(actions: [.trash(path: app), .trash(path: data)]), reason: "", preselected: false)
+        let guide = ReclaimItem(id: "guide:foo", label: "Foo", path: data + "/Cache", bytes: 1, tier: .guide, action: .none,
+                                reason: "", preselected: false)
+        let things = projects + large + [Thing(id: "app:" + app, kind: .app, title: "Foo", path: app, bytes: 2, items: [uninstall, guide])]
+        // Blocks as the map names them: paths from the tree.
+        func ids(_ rel: String) -> [String] {
+            let p = tree.find(f.path(rel)).map(tree.path) ?? f.path(rel)
+            return Report.items(at: p, in: things).map(\.item.id)
+        }
+
+        #expect(ids("Movies/clip.mov") == ["large:" + f.path("Movies/clip.mov")])
+        #expect(Report.items(at: f.path("Movies/clip.mov"), in: things).first?.thing.kind == .largeFile)
+        #expect(ids("proj/node_modules") == ["art:" + f.path("proj/node_modules")])
+        #expect(ids("proj/node_modules/x/big.bin").isEmpty)   // inside an item
+        #expect(ids("proj").isEmpty)                          // a project, not an item
+        #expect(ids("Movies").isEmpty)
+        #expect(ids("Apps/Foo.app") == [uninstall.id])
+        #expect(ids("Library/Foo") == [uninstall.id])          // removed with the app
+        #expect(ids("Library/Foo/Cache").isEmpty)              // a guide can't be selected
+    }
 }
 
 /// A stop request that can be set from another thread.

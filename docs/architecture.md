@@ -460,7 +460,7 @@ fixtures built in temporary folders:
 - `RecognizerTests`: project artifacts and restore commands, active projects
   not preselected, projects on an external disk (not in its dot folders),
   frames matching only their own video, npx packages, frame sequences versus
-  camera bursts.
+  camera bursts, the map adding only listed items to Clean Up.
 - `AppTests`: which apps are listed, which folders belong to which app
   (suffixes, team-id group containers, vendor folders and generic names left
   out), Homebrew and system-component warnings, running apps left alone
