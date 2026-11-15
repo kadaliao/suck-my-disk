@@ -46,14 +46,27 @@ import Recognizers
         func run(_ rel: String, in app: String) throws -> Process {
             let exe = app + "/" + rel
             try FileManager.default.createDirectory(atPath: (exe as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-            try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: exe)
+            try FileManager.default.copyItem(atPath: try #require(PrivilegedTests.sleeper, "couldn't build the test program"), toPath: exe)
             let p = Process()
             p.executableURL = URL(fileURLWithPath: exe)
-            p.arguments = ["600"]
             try p.run()
             return p
         }
     }
+
+    /// A program that waits until it is stopped, built for these tests. Not a copy of /bin/sleep:
+    /// macOS kills a copy of a system program started from somewhere else (its launch constraints),
+    /// at least when the tests run from a launchd job, and protects a bundle whose program Apple signed.
+    static let sleeper: String? = {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("smd-tests").path
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let src = dir + "/sleeper.c", built = dir + "/sleeper-" + UUID().uuidString, exe = dir + "/sleeper"
+        guard (try? "#include <unistd.h>\nint main(void) { for (;;) pause(); }\n"
+            .write(toFile: src, atomically: true, encoding: .utf8)) != nil,
+              Shell.run(["/usr/bin/cc", "-o", built, src], timeout: 120).ok,
+              rename(built, exe) == 0 else { return nil }
+        return exe
+    }()
 
     static func exists(_ p: String) -> Bool {
         var st = stat()
@@ -162,7 +175,9 @@ import Recognizers
     /// as somebody else keeps the app where it is, and the message says what to turn on.
     @Test func executorStopsBackgroundProgramsWhenUninstalling() throws {
         let box = try Box()
-        let app = try box.app("Foo.app")
+        // Not Foo.app: the test above runs Foo.app's main program meanwhile, and a program
+        // from any Foo.app counts as this one's (App Translocation runs apps from elsewhere).
+        let app = try box.app("Bar.app")
         try FileManager.default.createDirectory(atPath: box.root + "/data", withIntermediateDirectories: true)
         // A delete stands in for the Trash here, so the test leaves nothing in your Trash.
         let uninstall = ReclaimItem(id: "u", label: "u", path: app, bytes: 1, tier: .yours,
