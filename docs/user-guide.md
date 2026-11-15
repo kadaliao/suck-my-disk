@@ -269,7 +269,9 @@ largest first:
 Files are listed from 100 MB (installers from 20 MB), at most 50 per group;
 the group says how many more there are. Under each file: whether the app an
 installer is for is already installed, when it was last opened and where it
-was downloaded from (both from Spotlight), and when it last changed.
+was downloaded from (both from Spotlight), and when it last changed. Next to
+each file is its cover as Quick Look draws it: a video's frame, a PDF's first
+page, a photo. Files Quick Look has no cover for keep the group's icon.
 
 Left out: your Library and dot folders (they belong to apps and tools),
 anything another list already shows (a project's `node_modules`, a frames
@@ -471,9 +473,23 @@ says how much.
 
 ![Whole Disk treemap](images/en/whole-disk.png)
 
-A treemap of the entire disk, colored by category. Click a block to go into
+A treemap of the entire disk, colored by category. Click a folder to go into
 it; click a name in the path above the map to go back. After a cleanup the
 map asks for a rescan before it is shown again.
+
+- **Click a file** (or a folder the map doesn't go into, such as a folded
+  `node_modules`) for a preview: its cover, name, path and size, with **Show
+  in Finder**.
+- **Right-click any block** for **Show in Finder**.
+- When the block is an item in one of the lists (a large file, a project's
+  `node_modules`, an app's data folder…), both also offer **Add to Clean
+  Up…**, and the preview says why it is listed. The menu names the item when
+  it is more than the block (*Uninstall Figma* on Figma's data folder). It
+  ticks that item and opens the Clean Up sheet, so the item goes the way it
+  would from its list: checked again before it runs, restore steps in the
+  journal, your own files to the Trash. When a block
+  isn't an item itself, for example a file inside a project, the map says so
+  and leaves it to Finder. The map never deletes anything by itself.
 
 ## External disks
 
@@ -829,6 +845,12 @@ preferences.
 - For [Large files](#large-files): Spotlight's last-used date and download
   source of each listed file, whether it is in iCloud, and `git ls-files` for
   the ones inside a repository.
+- For covers in Large files and the Whole Disk preview: the **contents** of
+  the file, read by Quick Look, only for files on screen (a group you opened,
+  a block you clicked). SuckMyDisk keeps covers in memory while it runs and
+  saves none (Quick Look may cache them, as it does for Finder). It makes none
+  for a file iCloud hasn't downloaded, none in the privacy-protected folders
+  without Full Disk Access, and none in demo or snapshot runs.
 - For [Browsers](#browsers): each browser's profile list (`Local State`,
   `profiles.ini`), and the **number of rows** in its history, cookie and form
   tables (opened read-only, without locking). Nothing is read out of those

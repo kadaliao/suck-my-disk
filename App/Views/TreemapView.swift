@@ -23,6 +23,10 @@ struct TreemapView: View {
     @State private var stack: [NodeID] = []
     @State private var rects: [TMRect] = []
     @State private var hovered: TMRect?
+    /// The block whose preview is open: a file, or a folder the map doesn't go into.
+    @State private var picked: TMRect?
+    /// The block a right-click opens the menu for: the pointer leaving doesn't clear it.
+    @State private var pointed: TMRect?
 
     private var tree: ScanTree? {
         if let disk { return disk.tree }
@@ -48,6 +52,11 @@ struct TreemapView: View {
                             .onChange(of: revision) { _, _ in relayout(tree, geo.size) }
                     }
                     .padding(.horizontal, 16)
+                    .overlay(alignment: .bottom) {
+                        if let p = picked {
+                            preview(p, tree).transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    }
                     infoBar(tree)
                 }
                 .onAppear { resolveStack(tree) }
@@ -89,6 +98,7 @@ struct TreemapView: View {
                 } else {
                     ctx.fill(path, with: .color(r.color.opacity(isHover ? 0.85 : 0.55)))
                 }
+                if picked?.id == r.id { ctx.stroke(path, with: .color(.primary.opacity(0.8)), lineWidth: 2) }
                 if r.rect.width > 54 && r.rect.height > 18 {
                     let size = Text(Fmt.bytes(r.size)).font(.system(size: 10)).foregroundStyle(.secondary)
                     let label = Text("\(Text(r.name).font(.system(size: 11, weight: r.depth == 0 ? .semibold : .regular)))  \(size)")
@@ -100,15 +110,124 @@ struct TreemapView: View {
         }
         .onContinuousHover { phase in
             switch phase {
-            case .active(let p): hovered = rects.last { $0.rect.contains(p) }
+            case .active(let p):
+                // Only on moving to another block: each change redraws the map and rebuilds its menu.
+                let hit = rects.last { $0.rect.contains(p) }
+                if hit?.id != hovered?.id || hit?.id != pointed?.id {
+                    hovered = hit
+                    pointed = hit
+                }
             case .ended: hovered = nil
             }
         }
         .onTapGesture(count: 1, coordinateSpace: .local) { p in
-            if let r = rects.last(where: { $0.rect.contains(p) && $0.drillable }), let tree {
-                withAnimation(.snappy) { stackPaths = pathTo(r.id, tree).map { tree.rawPath($0) } }
+            guard let tree, let r = rects.last(where: { $0.rect.contains(p) }) else {
+                withAnimation(.snappy) { picked = nil }
+                return
+            }
+            withAnimation(.snappy) {
+                if r.drillable {
+                    picked = nil
+                    stackPaths = pathTo(r.id, tree).map { tree.rawPath($0) }
+                } else {
+                    picked = picked?.id == r.id ? nil : r
+                }
             }
         }
+        .contextMenu {
+            if let r = pointed, let tree { blockMenu(r, tree) }
+        }
+    }
+
+    // MARK: acting on a block
+
+    private var busy: Bool { model.isBusy || (disk?.isBusy ?? false) }
+
+    private func reveal(_ path: String) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    /// Ticks the item and opens the Clean Up sheet: the map itself never removes anything.
+    private func addToCleanUp(_ item: ReclaimItem) {
+        model.setSelected([item.id], true)
+        model.confirmCleanUp(disk)
+    }
+
+    /// Named after the item when it isn't the block itself ("Uninstall Figma" for its data folder).
+    private func addTitle(_ item: ReclaimItem, _ r: TMRect) -> String {
+        item.label == r.name ? L("加入清理…", "Add to Clean Up…") : L("加入清理：\(item.label)…", "Add to Clean Up: \(item.label)…")
+    }
+
+    private var unlisted: String { L("这一项没有在这几类里列出，可以在访达里处理", "Not in any list here; you can handle it in Finder") }
+
+    @ViewBuilder
+    private func blockMenu(_ r: TMRect, _ tree: ScanTree) -> some View {
+        let path = tree.path(r.id)
+        let found = Report.items(at: path, in: things)
+        Button(L("在访达中显示", "Show in Finder")) { reveal(path) }
+        Divider()
+        if found.isEmpty {
+            Button(unlisted) {}.disabled(true)
+        }
+        ForEach(found, id: \.item.id) { m in
+            Button(addTitle(m.item, r)) { addToCleanUp(m.item) }.disabled(busy)
+        }
+    }
+
+    /// A block's symbol until its cover is ready: by kind of file, a folder for folders.
+    private func symbol(_ r: TMRect, _ tree: ScanTree) -> String {
+        if let g = LargeFileRecognizer.group(of: r.name, package: false), g != .other {
+            return LargeFileIcon.symbol("large:" + g.rawValue)
+        }
+        return tree.isDir(r.id) ? "folder" : "doc"
+    }
+
+    private func preview(_ r: TMRect, _ tree: ScanTree) -> some View {
+        let path = tree.path(r.id)
+        let found = Report.items(at: path, in: things)
+        return HStack(alignment: .top, spacing: 14) {
+            FileThumbnail(path: tree.isDir(r.id) ? nil : path, side: 64, symbol: symbol(r, tree), tint: r.color)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(r.name).font(.callout.weight(.medium)).lineLimit(1)
+                    Spacer()
+                    Text(Fmt.bytes(r.size)).monospacedDigit()
+                }
+                Text(Fmt.home(path))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(2).truncationMode(.middle)
+                    .textSelection(.enabled)
+                if found.isEmpty {
+                    Text(unlisted).font(.caption).foregroundStyle(.tertiary)
+                } else if found.count == 1, let i = found.first?.item {
+                    Text(i.reason + (i.restore.map { L(" · 恢复：", " · restore: ") + $0 } ?? ""))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+                HStack {
+                    Button(L("在访达中显示", "Show in Finder")) { reveal(path) }
+                    if found.count == 1, let i = found.first?.item {
+                        Button(addTitle(i, r)) { addToCleanUp(i) }.buttonStyle(.borderedProminent).disabled(busy)
+                    } else if found.count > 1 {
+                        Menu(L("加入清理", "Add to Clean Up")) {
+                            ForEach(found, id: \.item.id) { m in Button(m.item.label) { addToCleanUp(m.item) } }
+                        }
+                        .fixedSize()
+                        .disabled(busy)
+                    }
+                }
+                .controlSize(.small)
+                .padding(.top, 4)
+            }
+            Button { withAnimation(.snappy) { picked = nil } } label: { Image(systemName: "xmark") }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .keyboardShortcut(.cancelAction)
+                .help(L("关闭", "Close"))
+        }
+        .padding(14)
+        .frame(maxWidth: 560)
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .padding(12)
     }
 
     /// Maps the path stack onto the current tree, dropping folders that no longer exist.
@@ -153,7 +272,8 @@ struct TreemapView: View {
                 Spacer()
                 Text(Fmt.bytes(h.size)).monospacedDigit()
             } else {
-                Text(L("点一下方块钻进去，面包屑可以返回。颜色表示它属于哪一类。", "Click a block to go in; use the path above to go back. Colors show what kind of thing it is."))
+                Text(L("点文件夹钻进去，点文件看预览，右键可以在访达中显示或加入清理；上方路径可以返回，颜色表示它属于哪一类。",
+                       "Click a folder to go in and a file to preview it; right-click to show it in Finder or add it to Clean Up. The path above goes back; colors show what kind of thing it is."))
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
             }
@@ -172,6 +292,10 @@ struct TreemapView: View {
         var out: [TMRect] = []
         layout(tree, top, CGRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1), depth: 0, kinds: kinds, out: &out)
         rects = out
+        // Where they are now, and gone when no longer shown.
+        if let h = hovered { hovered = out.first { $0.id == h.id } }
+        if let p = picked { picked = out.first { $0.id == p.id } }
+        if let p = pointed { pointed = out.first { $0.id == p.id } }
     }
 
     private func kindMap(_ tree: ScanTree) -> [NodeID: ThingKind] {

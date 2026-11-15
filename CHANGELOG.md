@@ -17,6 +17,17 @@ All notable changes to SuckMyDisk. The format follows
   grew. Things that are new that day, or gone since the day before, are
   marked. It starts on the latest day; click a bar to pick another. It reads
   the history SuckMyDisk already keeps, so earlier days can be opened too.
+- **The Whole Disk map does more than show.** Click a file for a preview with
+  its cover, path and size; right-click any block to show it in Finder. A
+  block that is an item in one of the lists (a large file, a project's
+  `node_modules`, an app's data folder) can be added to Clean Up from there:
+  it is ticked and the Clean Up sheet opens, so it goes the same way as from
+  its list. The map never deletes anything by itself.
+- **Covers in Large files.** Each file shows its cover as Quick Look draws it
+  (a video's frame, a PDF's first page, a photo), with the group's icon until
+  it is ready. Covers are made only for files on screen and kept in memory;
+  none for files iCloud hasn't downloaded or, without Full Disk Access, in the
+  privacy-protected folders.
 
 ## [0.6.4] - 2026-11-12
 
