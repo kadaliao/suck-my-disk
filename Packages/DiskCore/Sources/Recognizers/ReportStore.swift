@@ -75,4 +75,78 @@ public enum ReportStore {
         }
         return out
     }
+
+    /// One thing's size on one day, as `writeHistory` recorded it.
+    public struct ThingPoint: Sendable {
+        public var day: String
+        public var thingID: String
+        public var kind: String
+        public var title: String
+        public var bytes: UInt64
+
+        public init(day: String, thingID: String, kind: String, title: String, bytes: UInt64) {
+            self.day = day
+            self.thingID = thingID
+            self.kind = kind
+            self.title = title
+            self.bytes = bytes
+        }
+    }
+
+    /// A thing on a chosen day next to the last day before it with a record.
+    public struct ThingChange: Sendable, Identifiable {
+        public var id: String { thingID }
+        public var thingID: String
+        public var kind: String
+        public var title: String
+        /// On the day; nil when it was recorded the day before but not anymore.
+        public var bytes: UInt64?
+        /// On the day before; nil when it is new.
+        public var before: UInt64?
+        public var change: Int64 { Int64(bytes ?? 0) - Int64(before ?? 0) }
+    }
+
+    public struct DayDetail: Sendable {
+        public var day: String
+        /// The last day before `day` with a record; nil on the first one.
+        public var previousDay: String?
+        /// By how much they changed, up or down, then by size: what grew and what went come first.
+        public var things: [ThingChange]
+    }
+
+    /// Each thing on `day`, and what changed since the last day before it with a record.
+    public static func detail(day: String) -> DayDetail {
+        guard let store = try? Store() else { return DayDetail(day: day, previousDay: nil, things: []) }
+        return detail(day: day, in: store)
+    }
+
+    public static func detail(day: String, in store: Store) -> DayDetail {
+        let previous = (try? store.query("SELECT MAX(day) FROM history WHERE day < ?", [.text(day)]))?.first?.first?.text
+        let rows = (try? store.query("SELECT day, thing_id, kind, title, bytes FROM history WHERE day = ? OR day = ?",
+                                     [.text(day), .text(previous)])) ?? []
+        return detail(day: day, rows: rows.map {
+            ThingPoint(day: $0[0].text ?? "", thingID: $0[1].text ?? "", kind: $0[2].text ?? "",
+                       title: $0[3].text ?? "", bytes: UInt64(max(0, $0[4].int)))
+        })
+    }
+
+    /// The same from rows of any days; demo mode keeps its made-up history in memory.
+    public static func detail(day: String, rows: [ThingPoint]) -> DayDetail {
+        let previous = rows.lazy.map(\.day).filter { $0 < day }.max()
+        var byID: [String: ThingChange] = [:]
+        for r in rows where r.day == previous {
+            byID[r.thingID] = ThingChange(thingID: r.thingID, kind: r.kind, title: r.title, bytes: nil, before: r.bytes)
+        }
+        // The day's own title and kind win: a thing can be renamed.
+        for r in rows where r.day == day {
+            byID[r.thingID] = ThingChange(thingID: r.thingID, kind: r.kind, title: r.title, bytes: r.bytes,
+                                          before: byID[r.thingID]?.before)
+        }
+        let things = byID.values.sorted { a, b in
+            if a.change.magnitude != b.change.magnitude { return a.change.magnitude > b.change.magnitude }
+            if (a.bytes ?? 0) != (b.bytes ?? 0) { return (a.bytes ?? 0) > (b.bytes ?? 0) }
+            return (a.title, a.thingID) < (b.title, b.thingID)
+        }
+        return DayDetail(day: day, previousDay: previous, things: things)
+    }
 }
