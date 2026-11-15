@@ -6,6 +6,10 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.7.0] - 2026-11-15
+
+需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。0.5.0 及以后的版本会通过 App 内更新拿到这个版本。索引格式没变，升级后不用重新扫描。
+
 ### 新增
 
 - **时间线能看某一天的明细了。** 图下面列出那天每个项目、渲染帧文件夹、开发缓存、模型和应用数据各占多少，比上一个有记录的日子多了或少了多少，变化最大的排在前面，能看出是哪个项目、哪份缓存在长。当天新出现的、前一天还在这天没了的都会标出来。默认显示最近一天，点柱子换别的日子。用的是 SuckMyDisk 一直在记的历史，所以以前的日子也能点开看。
@@ -213,7 +217,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.4...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.1...v0.6.2
