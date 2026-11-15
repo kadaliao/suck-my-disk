@@ -6,6 +6,14 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.7.1] - 2026-11-15
+
+需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。0.5.0 及以后的版本会通过 App 内更新拿到这个版本。索引格式没变，升级后不用重新扫描。
+
+### 修复
+
+- 从全盘方块图「加入清理」后，打开的清理面板里看不到刚加的那一项：它常在最后一组（你的文件，移到废纸篓），要往下滚才看得到。现在面板会直接滚到这一项并标出来。
+
 ## [0.7.0] - 2026-11-15
 
 需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。0.5.0 及以后的版本会通过 App 内更新拿到这个版本。索引格式没变，升级后不用重新扫描。
@@ -217,7 +225,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.0...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.2...v0.6.3
