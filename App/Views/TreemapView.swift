@@ -150,7 +150,7 @@ struct TreemapView: View {
     /// Ticks the item and opens the Clean Up sheet: the map itself never removes anything.
     private func addToCleanUp(_ item: ReclaimItem) {
         model.setSelected([item.id], true)
-        model.confirmCleanUp(disk)
+        model.confirmCleanUp(disk, focus: item.id)
     }
 
     /// Named after the item when it isn't the block itself ("Uninstall Figma" for its data folder).

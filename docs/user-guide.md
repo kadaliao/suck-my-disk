@@ -485,7 +485,8 @@ map asks for a rescan before it is shown again.
   `node_modules`, an app's data folder…), both also offer **Add to Clean
   Up…**, and the preview says why it is listed. The menu names the item when
   it is more than the block (*Uninstall Figma* on Figma's data folder). It
-  ticks that item and opens the Clean Up sheet, so the item goes the way it
+  ticks that item and opens the Clean Up sheet, scrolled to it and marked
+  among the other ticked items, so the item goes the way it
   would from its list: checked again before it runs, restore steps in the
   journal, your own files to the Trash. When a block
   isn't an item itself, for example a file inside a project, the map says so

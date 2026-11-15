@@ -250,30 +250,51 @@ struct CleanSheet: View {
                 Spacer()
                 Text(L("约腾出 \(Fmt.bytes(plan.freed))", "≈ \(Fmt.bytes(plan.freed))")).font(.title3).monospacedDigit().foregroundStyle(.secondary)
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(groups.filter { !$0.2.isEmpty }, id: \.0) { g in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(g.0).font(.headline)
-                                Text(g.1).font(.caption).foregroundStyle(.secondary)
-                            }
-                            ForEach(g.2) { i in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(groups.filter { !$0.2.isEmpty }, id: \.0) { g in
+                            VStack(alignment: .leading, spacing: 6) {
                                 HStack {
-                                    Text(i.label).lineLimit(1)
-                                    if let w = i.path.map(Fmt.home) ?? groupOf[i.id] {
-                                        Text(w).font(.caption).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
-                                    }
-                                    Spacer()
-                                    Text(ItemRow.amount(i)).monospacedDigit().foregroundStyle(.secondary)
+                                    Text(g.0).font(.headline)
+                                    Text(g.1).font(.caption).foregroundStyle(.secondary)
                                 }
-                                .font(.callout)
+                                ForEach(g.2) { i in
+                                    HStack {
+                                        Text(i.label).lineLimit(1)
+                                        if let w = i.path.map(Fmt.home) ?? groupOf[i.id] {
+                                            Text(w).font(.caption).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
+                                        }
+                                        Spacer()
+                                        Text(ItemRow.amount(i)).monospacedDigit().foregroundStyle(.secondary)
+                                    }
+                                    .font(.callout)
+                                    .background {
+                                        // The item just added from the map: easy to find among the ticked ones.
+                                        if i.id == model.cleanFocus {
+                                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                                .fill(Color.accentColor.opacity(0.18))
+                                                .padding(.horizontal, -6)
+                                                .padding(.vertical, -3)
+                                        }
+                                    }
+                                    .id(i.id)
+                                }
                             }
                         }
                     }
+                    // Room for the mark around a row; the list itself stays lined up with the title.
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                }
+                .padding(.horizontal, -6)
+                .frame(maxHeight: 360)
+                .onAppear {
+                    // It may be in the last group, below what the list shows at first.
+                    guard let id = model.cleanFocus else { return }
+                    DispatchQueue.main.async { proxy.scrollTo(id, anchor: .center) }
                 }
             }
-            .frame(maxHeight: 360)
             Text(L("iCloud、照片、git 跟踪的文件、正在运行的程序和打开着的应用在用的东西不会被碰。执行前每一项都会再检查一遍。",
                    "iCloud, Photos, git-tracked files, and anything a running program or an open app uses are never touched. Every item is re-checked first."))
                 .font(.caption)

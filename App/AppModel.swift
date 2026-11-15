@@ -213,6 +213,8 @@ final class AppModel {
     var userFiles: UInt64 = 0
     var applications: UInt64 = 0
     var confirming = false
+    /// The item the Clean Up sheet shows first: one just added from the map, below the fold otherwise.
+    var cleanFocus: String?
     var scanStarted: Date?
 
     var liveState: LiveState = .off
@@ -257,8 +259,10 @@ final class AppModel {
     /// What the Clean Up sheet shows and runs.
     var cleanPlan: Planner.Plan { cleanDisk.map(plan(for:)) ?? plan }
 
-    func confirmCleanUp(_ disk: ExternalDisk? = nil) {
+    /// `focus`: the item just added from elsewhere (the map), which the sheet scrolls to and marks.
+    func confirmCleanUp(_ disk: ExternalDisk? = nil, focus: String? = nil) {
         cleanDisk = disk
+        cleanFocus = focus
         confirming = true
     }
 
