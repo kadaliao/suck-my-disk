@@ -6,6 +6,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.9.0] - 2026-11-22
+
 ### 新增
 
 - 概览「还能放心腾出」卡片多了 **查看这 N 项**，展开就能看到勾了哪些、按项目或缓存分组、各自腾出多少，不想清的当场取消勾选；列表底部栏点「已选 N 项」也能看到同一份清单（[#4](https://github.com/kadaliao/suck-my-disk/issues/4)）。
@@ -245,7 +247,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.1...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.0...v0.7.1
