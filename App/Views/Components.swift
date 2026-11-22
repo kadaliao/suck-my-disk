@@ -193,8 +193,22 @@ struct SelectionBar: View {
     /// An external disk's list; nil is the startup disk.
     var disk: ExternalDisk?
 
+    private var waitReason: String? {
+        if let disk, disk.isBusy {
+            return L("正在更新外接盘的扫描结果，完成后可清理", "Updating the external disk scan. Cleanup will be available when it finishes.")
+        }
+        switch model.phase {
+        case .idle: return nil
+        case .loading, .scanning, .recognizing:
+            return L("正在更新启动盘的扫描结果，完成后可清理", "Updating the startup disk scan. Cleanup will be available when it finishes.")
+        case .cleaning:
+            return L("请等待当前清理结束", "Waiting for the current cleanup to finish.")
+        }
+    }
+
     var body: some View {
         let plan = disk.map(model.plan(for:)) ?? model.plan
+        let reason = waitReason
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L("已选 \(plan.items.count) 项", "\(plan.items.count) selected"))
@@ -205,6 +219,13 @@ struct SelectionBar: View {
                     .monospacedDigit()
             }
             Spacer()
+            if !plan.items.isEmpty, let reason {
+                Text(reason)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Button {
                 model.confirmCleanUp(disk)
             } label: {
@@ -212,7 +233,7 @@ struct SelectionBar: View {
             }
             .buttonStyle(.glassProminent)
             .controlSize(.large)
-            .disabled(plan.items.isEmpty || model.isBusy || (disk?.isBusy ?? false))
+            .disabled(plan.items.isEmpty || reason != nil)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)

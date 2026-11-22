@@ -6,6 +6,12 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.8.1] - 2026-11-22
+
+### 修复
+
+- 已勾选项目但仍需等待扫描时，「清理」按钮旁会提示正在更新哪块磁盘的扫描结果，以及何时可以清理。
+
 ## [0.8.0] - 2026-11-22
 
 ### 新增
@@ -235,7 +241,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.0...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.4...v0.7.0

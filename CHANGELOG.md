@@ -8,6 +8,12 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-22
+
+### Fixed
+
+- When a scan keeps Clean Up disabled, the selection bar now shows which disk is being scanned and when cleanup becomes available.
+
 ## [0.8.0] - 2026-11-22
 
 ### Added
@@ -432,7 +438,8 @@ Developer ID and notarized.
   `smd reclaim` (dry run by default), `smd hibernate`, `smd wake`,
   `smd journal`.
 
-[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.4...v0.7.0
