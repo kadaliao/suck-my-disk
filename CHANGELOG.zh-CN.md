@@ -6,6 +6,16 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.8.0] - 2026-11-22
+
+### 新增
+
+- 清理项被程序占用时，可以查看程序名和 PID，选择「跳过此项」或「强制退出并继续」。退出后会重新检查占用。
+
+### 修复
+
+- 清理结束后，底部按钮会从「停止」变为「完成」。点「完成」或按回车即可返回上一页。
+
 ## [0.7.1] - 2026-11-15
 
 需要 macOS 26（Apple 芯片或 Intel）。已用 Developer ID 签名并公证。0.5.0 及以后的版本会通过 App 内更新拿到这个版本。索引格式没变，升级后不用重新扫描。
@@ -225,7 +235,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.1...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.3...v0.6.4

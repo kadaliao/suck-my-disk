@@ -17,6 +17,13 @@ public final class Executor {
     /// `stopped`: the run was stopped while this item was being done, so part of it may be left.
     public enum Status: String, Sendable { case done, skipped, failed, stopped }
 
+    public typealias ConfirmForceQuit = (_ item: ReclaimItem, _ executable: String, _ pid: Int32) -> Bool
+    private let confirmForceQuit: ConfirmForceQuit?
+    private struct InUse: Error {
+        let program: Guards.Program
+        let reason: String
+    }
+
     let store: Store?
     let log: (String) -> Void
     /// Told when a step waits for the person (Finder asking for a password); nil sends it to `log`.
@@ -46,6 +53,7 @@ public final class Executor {
                 note: ((String) -> Void)? = nil,
                 isCancelled: @escaping () -> Bool = { false },
                 elevate: ((String) -> String?)? = nil,
+                confirmForceQuit: ConfirmForceQuit? = nil,
                 agentFolders: [String] = [NSHomeDirectory() + "/Library/LaunchAgents", "/Library/LaunchAgents"]) {
         self.store = store
         self.agentFolders = agentFolders
@@ -53,6 +61,7 @@ public final class Executor {
         self.note = note
         self.isCancelled = isCancelled
         self.elevate = elevate
+        self.confirmForceQuit = confirmForceQuit
     }
 
     /// Items whose turn hadn't come when the run was stopped have no outcome.
@@ -87,32 +96,22 @@ public final class Executor {
         return programs.first { lockingTools.contains($0.name) }
     }
 
-    /// `programs`: what is running, nil if that couldn't be read.
-    func check(_ path: String, programs: [Guards.Program]?) -> String? {
+    private func check(_ path: String) -> String? {
         if Guards.isDenied(path) { return L("受保护的位置", "protected location") }
         var st = stat()
         guard lstat(path, &st) == 0 else { return L("已经不存在", "no longer exists") }
         if (st.st_mode & S_IFMT) == S_IFLNK { return L("是符号链接", "is a symlink") }
         if st.st_flags & UInt32(SF_RESTRICTED) != 0 { return L("受 macOS 系统完整性保护", "protected by System Integrity Protection") }
         if Guards.hasTrackedFiles(path) { return L("里面有 git 跟踪的文件", "contains git-tracked files") }
-        // Fails closed, like the git check.
-        guard let programs else { return L("没法确认有没有程序在用", "can't tell whether a program is using it") }
-        if let p = Guards.program(using: path, in: programs) {
-            return L("\(p.summary)（PID \(p.pid)）正在用", "in use by \(p.summary) (PID \(p.pid))")
-        }
         return nil
     }
 
     /// A database whose records an item erases: it stays, so only where it is and who names it matter.
-    func check(database path: String, programs: [Guards.Program]?) -> String? {
+    private func check(database path: String) -> String? {
         if Guards.isDenied(path) { return L("受保护的位置", "protected location") }
         var st = stat()
         guard lstat(path, &st) == 0 else { return L("已经不存在", "no longer exists") }
         if (st.st_mode & S_IFMT) != S_IFREG { return L("不是普通文件", "is not a regular file") }
-        guard let programs else { return L("没法确认有没有程序在用", "can't tell whether a program is using it") }
-        if let p = Guards.program(using: path, in: programs) {
-            return L("\(p.summary)（PID \(p.pid)）正在用", "in use by \(p.summary) (PID \(p.pid))")
-        }
         return nil
     }
 
@@ -138,7 +137,41 @@ public final class Executor {
         }
     }
 
-    func runOne(_ original: ReclaimItem) -> Outcome {
+    private func runOne(_ item: ReclaimItem) -> Outcome {
+        var asked: Set<Int32> = []
+        while !isCancelled() {
+            do { return try checkedRun(item) }
+            catch {
+                let program = error.program
+                guard let confirmForceQuit, asked.insert(program.pid).inserted,
+                      var target = BlockingProcess(program) else {
+                    return finish(item, .skipped, 0, error.reason, before: 0, after: 0)
+                }
+                guard !isCancelled() else { break }
+                let approved = confirmForceQuit(item, target.executable, program.pid)
+                guard !isCancelled() else { break }
+                guard approved else {
+                    return finish(item, .skipped, 0, error.reason, before: 0, after: 0)
+                }
+                // A program can release a file, exit or be replaced while the dialog is open.
+                guard let current = Guards.runningPrograms() else {
+                    return finish(item, .skipped, 0, error.reason, before: 0, after: 0)
+                }
+                if current.contains(where: { $0.pid == program.pid && $0.uid == program.uid && $0.command == program.command }) {
+                    guard !isCancelled() else { break }
+                    guard target.forceQuit(isCancelled: isCancelled) else {
+                        if isCancelled() { break }
+                        return finish(item, .skipped, 0,
+                                      L("无法退出 PID \(program.pid)", "Could not quit PID \(program.pid)"), before: 0, after: 0)
+                    }
+                }
+                // Rebuild the plan for this item and repeat every guard before acting.
+            }
+        }
+        return finish(item, .stopped, 0, L("已停止", "Stopped"), before: 0, after: 0)
+    }
+
+    private func checkedRun(_ original: ReclaimItem) throws(InUse) -> Outcome {
         var item = original
         if item.app != nil { item.action = Self.existing(item.action, keep: item.path) }
         let paths = Self.paths(item.action), argvs = Self.commands(item.action), dbs = item.action.databases
@@ -147,30 +180,35 @@ public final class Executor {
         if let app = item.app, !Self.exists(app) || !acts {
             return finish(item, .skipped, 0, L("\(Fmt.home(app)) 已经不在了", "\(Fmt.home(app)) is no longer there"), before: 0, after: 0)
         }
-        var programs = acts ? Guards.runningPrograms() : []
+        for p in paths {
+            if let why = check(p) {
+                return finish(item, .skipped, 0, "\(Fmt.home(p)): \(why)", before: 0, after: 0)
+            }
+        }
+        for db in dbs {
+            if let why = check(database: db) {
+                return finish(item, .skipped, 0, "\(Fmt.home(db)): \(why)", before: 0, after: 0)
+            }
+        }
+        guard var programs = acts ? Guards.runningPrograms() : [] else {
+            return finish(item, .skipped, 0, L("没法确认有没有程序在用", "Can't tell whether a program is using it"), before: 0, after: 0)
+        }
         /// The app whose background programs this item stops before it goes.
         var stopping: String?
         rootOnly = []
         if let app = item.app {
             let name = ((app as NSString).lastPathComponent as NSString).deletingPathExtension
-            guard let all = programs else {
-                return finish(item, .skipped, 0, L("没法确认 \(name) 有没有在运行", "can't tell whether \(name) is running"), before: 0, after: 0)
-            }
-            let mine = Guards.programs(inApp: app, in: all)
+            let mine = Guards.programs(inApp: app, in: programs)
             if let p = Guards.mainProgram(ofApp: app, in: mine) {
-                return finish(item, .skipped, 0,
-                              L("\(name) 正在运行（\(p.summary)，PID \(p.pid)），先退出它",
-                                "\(name) is running (\(p.summary), PID \(p.pid)); quit it first"),
-                              before: 0, after: 0)
+                throw InUse(program: p, reason: L("\(name) 正在运行（\(p.summary)，PID \(p.pid)），先退出它",
+                                                  "\(name) is running (\(p.summary), PID \(p.pid)); quit it first"))
             }
             // The app is closed, but something of it still runs: a daemon, an agent, a helper.
             // Nobody can quit those by hand, so uninstalling stops them. Its caches alone don't.
             if let p = mine.first {
                 guard paths.contains(app) else {
-                    return finish(item, .skipped, 0,
-                                  L("\(name) 的后台程序还在运行（\(p.summary)，PID \(p.pid)），它在用的缓存不动",
-                                    "a background program of \(name) is still running (\(p.summary), PID \(p.pid)), so its caches are left alone"),
-                                  before: 0, after: 0)
+                    throw InUse(program: p, reason: L("\(name) 的后台程序还在运行（\(p.summary)，PID \(p.pid)），它在用的缓存不动",
+                                                      "A background program of \(name) is still running (\(p.summary), PID \(p.pid))"))
                 }
                 // Somebody else's (root's daemon) takes the helper to stop.
                 if let r = mine.first(where: { $0.uid != getuid() }) {
@@ -184,25 +222,19 @@ public final class Executor {
                 }
                 stopping = app
                 let pids = Set(mine.map(\.pid))
-                programs = all.filter { !pids.contains($0.pid) }
+                programs = programs.filter { !pids.contains($0.pid) }
             }
         }
-        for p in paths {
-            if let why = check(p, programs: programs) {
-                return finish(item, .skipped, 0, "\(Fmt.home(p)): \(why)", before: 0, after: 0)
-            }
-        }
-        for db in dbs {
-            if let why = check(database: db, programs: programs) {
-                return finish(item, .skipped, 0, "\(Fmt.home(db)): \(why)", before: 0, after: 0)
+        for path in paths + dbs {
+            if let p = Guards.program(using: path, in: programs) {
+                let reason = L("\(p.summary)（PID \(p.pid)）正在用", "in use by \(p.summary) (PID \(p.pid))")
+                throw InUse(program: p, reason: "\(Fmt.home(path)): \(reason)")
             }
         }
         for argv in argvs {
-            if let p = programs.flatMap({ Self.busy(argv, programs: $0) }) {
-                return finish(item, .skipped, 0,
-                              L("\(p.summary)（PID \(p.pid)）还在运行，\(argv[0]) 要等它退出才能清缓存",
-                                "\(p.summary) (PID \(p.pid)) is still running; \(argv[0]) can't clean its cache until it exits"),
-                              before: 0, after: 0)
+            if let p = Self.busy(argv, programs: programs) {
+                throw InUse(program: p, reason: L("\(p.summary)（PID \(p.pid)）还在运行，\(argv[0]) 要等它退出才能清缓存",
+                                                  "\(p.summary) (PID \(p.pid)) is still running; \(argv[0]) can't clean its cache until it exits"))
             }
         }
         if let app = stopping {

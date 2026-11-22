@@ -16,7 +16,7 @@ struct CleanRunView: View {
                 CleanRunList(run: run, maxHeight: max(120, min(420, geo.size.height - ring - 270)))
                     .frame(maxWidth: 580)
                     .padding(.top, 26)
-                CleanRunButtons(run: run).padding(.top, 26)
+                CleanRunButton(run: run).padding(.top, 26)
             }
             .padding(.horizontal, 40)
             .frame(width: geo.size.width, height: geo.size.height)
@@ -87,40 +87,29 @@ private struct CleanRunHeadline: View {
     }
 }
 
-/// Stop while it runs, Done once it has ended. Both buttons are always there and the run only
-/// decides which one shows: swapped in and out with `if`, Stop could stay on screen after the
-/// run had ended (the swap happens inside the animation that ends the run), with no Done.
-private struct CleanRunButtons: View {
+/// Keep one control so a hidden Stop button can't linger over the result.
+private struct CleanRunButton: View {
     @Environment(AppModel.self) private var model
     var run: CleanRun
 
     var body: some View {
         let finished = run.finished
-        ZStack {
-            // Never disabled on the last item: that one may be waiting for Finder's password dialog.
-            Button { run.stop() } label: {
-                Text(run.stopping ? L("正在停止…", "Stopping…") : L("停止", "Stop")).frame(minWidth: 110)
-            }
-            .buttonStyle(.glass)
-            .controlSize(.large)
-            .disabled(run.stopping || finished)
-            .help(L("马上停下：正在清理的这一项会被中断，剩下的不动", "Stops now: the item being cleaned is interrupted and the rest is left alone"))
-            .opacity(finished ? 0 : 1)
-            .allowsHitTesting(!finished)
-            .accessibilityHidden(finished)
+        let stopping = !finished && run.stopping
+        let title = if finished { L("完成", "Done") }
+            else if stopping { L("正在停止…", "Stopping…") }
+            else { L("停止", "Stop") }
 
-            Button { model.closeCleanRun() } label: {
-                Text(L("完成", "Done")).frame(minWidth: 110)
-            }
-            .buttonStyle(.glassProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .disabled(!finished)
-            .opacity(finished ? 1 : 0)
-            .allowsHitTesting(finished)
-            .accessibilityHidden(!finished)
+        Button {
+            if run.finished { model.closeCleanRun() } else { run.stop() }
+        } label: {
+            Text(title).frame(minWidth: 110)
         }
-        // Not part of the animation that ends the run.
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .keyboardShortcut(finished ? .defaultAction : nil)
+        .disabled(stopping)
+        .help(finished ? L("返回清理前的页面", "Return to the previous page")
+              : L("马上停下：正在清理的这一项会被中断，剩下的不动", "Stops now: the item being cleaned is interrupted and the rest is left alone"))
         .transaction { $0.animation = nil }
     }
 }

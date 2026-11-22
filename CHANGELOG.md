@@ -8,6 +8,16 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-22
+
+### Added
+
+- When a program is using a cleanup item, the app shows its name and PID. Choose Skip Item or Force Quit and Continue. Cleanup checks the item again after the program exits.
+
+### Fixed
+
+- The cleanup button now changes from Stop to Done when the run ends. Click Done or press Return to go back.
+
 ## [0.7.1] - 2026-11-15
 
 Requires macOS 26 (Apple silicon or Intel). Signed with a Developer ID and
@@ -422,7 +432,8 @@ Developer ID and notarized.
   `smd reclaim` (dry run by default), `smd hibernate`, `smd wake`,
   `smd journal`.
 
-[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/kadaliao/suck-my-disk/compare/v0.6.3...v0.6.4

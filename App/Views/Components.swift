@@ -295,8 +295,8 @@ struct CleanSheet: View {
                     DispatchQueue.main.async { proxy.scrollTo(id, anchor: .center) }
                 }
             }
-            Text(L("iCloud、照片、git 跟踪的文件、正在运行的程序和打开着的应用在用的东西不会被碰。执行前每一项都会再检查一遍。",
-                   "iCloud, Photos, git-tracked files, and anything a running program or an open app uses are never touched. Every item is re-checked first."))
+            Text(L("iCloud、照片和 git 跟踪的文件受保护。遇到程序占用时，可跳过该项，或在提示中确认退出程序后继续。",
+                   "iCloud, Photos and git-tracked files are protected. If a program is using an item, you can skip it or confirm a request to quit the program."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {

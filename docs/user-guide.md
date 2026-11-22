@@ -342,8 +342,8 @@ own folder (`com.microsoft`, say) is never taken for one of its apps.
   Homebrew forgets it and removes its command-line links.
 - Setapp manages it: uninstall it in Setapp, or Setapp may put it back.
 
-**Safety.** Both items are skipped while the app is open (a copy macOS runs
-from a hidden folder counts); quit it first. An app that is closed may still
+**Safety.** Both items require the app to have quit (including copies macOS runs
+from a hidden folder). When prompted, skip the item or confirm force quitting. An app that is closed may still
 have something running in the background (a service started at boot, a helper
 with no menu bar icon) that you can't quit by hand: uninstalling stops those
 first and then moves the app, while its caches item is skipped. A background
@@ -429,9 +429,8 @@ Website Data… → Remove All*. Safari's history count needs Full Disk Access.
 engines, extensions and their settings, and Local Storage and IndexedDB
 (extensions keep their settings there too).
 
-**Safety.** Nothing here is preselected, ever. While the browser is open its
-items are skipped: quit it first (some browsers keep running in the
-background after their last window closes). A database still held open is
+**Safety.** Nothing here is preselected, ever. The browser needs to quit before cleanup. Some browsers keep running in the
+background after their last window closes. If prompted, skip the item or confirm quitting. A database still held open is
 left as it was. Records are erased in one transaction, so a database is
 either fully erased or unchanged, and then compacted so they don't linger in
 free space. Only this Mac's copy is erased: with the browser's sync on,
@@ -460,7 +459,14 @@ and the number in the middle is the space freed so far, measured from the
 volume's free space, not estimated. The list below shows whether each item is
 waiting, running, done, skipped or failed. Right before each one, every
 [safety rule](#safety-rules) is checked again; anything that fails is skipped
-with the reason. **Stop** works at any moment: the item that is running is
+with the reason. When one of your programs is using an item, the app shows its
+executable path and PID. **Skip Item** is the default and keeps both the program
+and the files. After saving your work, you can choose **Force Quit and Continue**.
+Cleanup checks the item again after the process exits and asks separately about
+any other program using it. If a process cannot be verified or stopped, the item
+is skipped.
+
+**Stop** works at any moment: the item that is running is
 interrupted before its next step (a cleanup command or a wait for Finder's
 password dialog is ended), the rest is left alone, and what already went stays
 gone. When the run ends, the same page shows the result: how much was

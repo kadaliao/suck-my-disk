@@ -680,7 +680,13 @@ final class AppModel {
             let work = Task.detached(priority: .userInitiated) {
                 Executor(store: store, log: { _ in },
                          note: { text in Task { @MainActor in run.note(text, row: n) } },
-                         isCancelled: { Task.isCancelled }, elevate: elevate).run([item]).first
+                         isCancelled: { Task.isCancelled }, elevate: elevate,
+                         confirmForceQuit: { blockedItem, executable, pid in
+                             DispatchQueue.main.sync {
+                                 guard !run.stopping else { return false }
+                                 return Self.confirmForceQuit(blockedItem, executable: executable, pid: pid)
+                             }
+                         }).run([item]).first
             }
             run.interrupt = { work.cancel() }
             let outcome = await work.value
@@ -723,6 +729,18 @@ final class AppModel {
         withAnimation(.smooth(duration: 0.6)) { run.finish() }
         phase = .idle
         if disk == nil { wake?.yield() }
+    }
+
+    private static func confirmForceQuit(_ item: ReclaimItem, executable: String, pid: Int32) -> Bool {
+        let name = URL(fileURLWithPath: executable).lastPathComponent
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = L("强制退出「\(name)」？", "Force quit “\(name)”?")
+        alert.informativeText = L("清理「\(item.label)」需要先退出这个程序。强制退出可能丢失未保存的工作。\n\n\(executable)（PID \(pid)）",
+                                  "“\(item.label)” is in use. Force quitting this program may lose unsaved work.\n\n\(executable) (PID \(pid))")
+        alert.addButton(withTitle: L("跳过此项", "Skip Item"))
+        alert.addButton(withTitle: L("强制退出并继续", "Force Quit and Continue")).hasDestructiveAction = true
+        return alert.runModal() == .alertSecondButtonReturn
     }
 
     /// Back to the window from a finished run.

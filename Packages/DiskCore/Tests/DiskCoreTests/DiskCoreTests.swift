@@ -469,6 +469,52 @@ final class Flag: @unchecked Sendable {
         #expect(Guards.program(using: f.path("npx/cc"), in: Guards.runningPrograms() ?? []) == nil)
     }
 
+    @Test func forceQuitRequiresConsentAndChecksForOtherUsersOfTheItem() throws {
+        let f = try Fixture()
+        let first = try f.runningProgram(using: "occupied/one")
+        let second = try f.runningProgram(using: "occupied/two")
+        defer {
+            for process in [first, second] where process.isRunning { process.terminate() }
+        }
+        let dir = f.path("occupied")
+        let item = ReclaimItem(id: "busy", label: "test cache", path: dir, bytes: 1, tier: .regenerable,
+                               action: .delete(path: dir), reason: "", preselected: false)
+        var confirmed: [Int32] = []
+        let executor = Executor(store: nil, log: { _ in }, confirmForceQuit: { blocked, executable, pid in
+            #expect(blocked.id == item.id)
+            #expect(executable.hasSuffix("/tail"))
+            #expect([first.processIdentifier, second.processIdentifier].contains(pid))
+            confirmed.append(pid)
+            return confirmed.count == 1
+        })
+        let partial = executor.run([item])
+        #expect(partial.first?.status == .skipped)
+        #expect(Set(confirmed) == Set([first.processIdentifier, second.processIdentifier]))
+        #expect(FileManager.default.fileExists(atPath: dir))
+        let remaining = [first, second].filter(\.isRunning)
+        #expect(remaining.count == 1)
+        let final = Executor(store: nil, log: { _ in }, confirmForceQuit: { _, _, pid in
+            remaining.first?.processIdentifier == pid
+        }).run([item])
+        #expect(final.first?.status == .done)
+        #expect(!FileManager.default.fileExists(atPath: dir))
+    }
+
+    @Test func cancellationDuringForceQuitConfirmationLeavesTheProgramRunning() throws {
+        let f = try Fixture()
+        let server = try f.runningProgram(using: "cache/sample")
+        defer { if server.isRunning { server.terminate() } }
+        let dir = f.path("cache")
+        let item = ReclaimItem(id: "cache", label: "cache", path: dir, bytes: 1, tier: .regenerable,
+                               action: .delete(path: dir), reason: "", preselected: false)
+        let cancel = Flag()
+        let result = Executor(store: nil, log: { _ in }, isCancelled: { cancel.isSet },
+                              confirmForceQuit: { _, _, _ in cancel.set(); return true }).run([item])
+        #expect(result.first?.status == .stopped)
+        #expect(server.isRunning)
+        #expect(FileManager.default.fileExists(atPath: f.path("cache/sample")))
+    }
+
     /// What is ticked goes, however recently it changed: a download cache changes every time its
     /// tool runs. How recent a change is only decides what the recognizers tick by default.
     @Test func recentChangesDontHoldAnItemBack() throws {
