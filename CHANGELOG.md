@@ -8,6 +8,10 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The overview's "You can safely free" card has a **See the N items** link that lists every ticked item, grouped by project or cache, with what each frees; untick anything there before cleaning. Clicking **N selected** in a list's bottom bar shows the same list ([#4](https://github.com/kadaliao/suck-my-disk/issues/4)).
+
 ## [0.8.1] - 2026-11-22
 
 ### Fixed

@@ -4,6 +4,7 @@ import SwiftUI
 
 struct OverviewView: View {
     @Environment(AppModel.self) private var model
+    @State private var showPicked = false
 
     var body: some View {
         ScrollView {
@@ -48,37 +49,55 @@ struct OverviewView: View {
 
     private var reclaimHero: some View {
         let plan = model.plan
-        return HStack(alignment: .center, spacing: 24) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L("还能放心腾出", "You can safely free")).font(.title3).foregroundStyle(.secondary)
-                BigNumber(bytes: plan.freed, size: 44)
-                Text(L("已经替你勾好 \(plan.items.count) 项：都是能重新生成的东西，或者工具自己会清理的缓存。",
-                       "\(plan.items.count) items are preselected: all rebuildable, or caches the tools clean themselves."))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if model.undecided > 1_000_000_000 {
-                    Button {
-                        model.section = .devCache
-                    } label: {
-                        Label(L("另有 \(Fmt.bytes(model.undecided)) 等你决定：模拟器、uv 缓存、大文件、还在用的项目…",
-                                "\(Fmt.bytes(model.undecided)) more awaits your call: simulators, uv cache, large files, active projects…"),
-                              systemImage: "hand.raised")
-                            .font(.callout)
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .center, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L("还能放心腾出", "You can safely free")).font(.title3).foregroundStyle(.secondary)
+                    BigNumber(bytes: plan.freed, size: 44)
+                    Text(L("已经替你勾好 \(plan.items.count) 项：都是能重新生成的东西，或者工具自己会清理的缓存。",
+                           "\(plan.items.count) items are preselected: all rebuildable, or caches the tools clean themselves."))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !plan.items.isEmpty {
+                        Button {
+                            withAnimation(.snappy) { showPicked.toggle() }
+                        } label: {
+                            Label(showPicked ? L("收起", "Hide") : L("查看这 \(plan.items.count) 项", "See the \(plan.items.count) items"),
+                                  systemImage: showPicked ? "chevron.up" : "chevron.down")
+                                .font(.callout)
+                        }
+                        .buttonStyle(.link)
+                        .padding(.top, 2)
                     }
-                    .buttonStyle(.link)
-                    .padding(.top, 2)
+                    if model.undecided > 1_000_000_000 {
+                        Button {
+                            model.section = .devCache
+                        } label: {
+                            Label(L("另有 \(Fmt.bytes(model.undecided)) 等你决定：模拟器、uv 缓存、大文件、还在用的项目…",
+                                    "\(Fmt.bytes(model.undecided)) more awaits your call: simulators, uv cache, large files, active projects…"),
+                                  systemImage: "hand.raised")
+                                .font(.callout)
+                        }
+                        .buttonStyle(.link)
+                        .padding(.top, 2)
+                    }
                 }
+                Spacer()
+                Button {
+                    model.confirmCleanUp()
+                } label: {
+                    Label(L("一键清理", "Clean Up"), systemImage: "sparkles").padding(.horizontal, 10).padding(.vertical, 4)
+                }
+                .buttonStyle(.glassProminent)
+                .controlSize(.extraLarge)
+                .disabled(plan.items.isEmpty || model.isBusy)
             }
-            Spacer()
-            Button {
-                model.confirmCleanUp()
-            } label: {
-                Label(L("一键清理", "Clean Up"), systemImage: "sparkles").padding(.horizontal, 10).padding(.vertical, 4)
+            if showPicked, !plan.items.isEmpty {
+                Divider()
+                SelectedList(things: model.things, maxHeight: 360)
+                    .transition(.opacity)
             }
-            .buttonStyle(.glassProminent)
-            .controlSize(.extraLarge)
-            .disabled(plan.items.isEmpty || model.isBusy)
         }
         .padding(24)
         .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 22, style: .continuous))

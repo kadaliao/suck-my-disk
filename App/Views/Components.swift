@@ -192,6 +192,7 @@ struct SelectionBar: View {
     var kind: ThingKind?
     /// An external disk's list; nil is the startup disk.
     var disk: ExternalDisk?
+    @State private var showList = false
 
     private var waitReason: String? {
         if let disk, disk.isBusy {
@@ -210,13 +211,30 @@ struct SelectionBar: View {
         let plan = disk.map(model.plan(for:)) ?? model.plan
         let reason = waitReason
         HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("已选 \(plan.items.count) 项", "\(plan.items.count) selected"))
+            Button { showList.toggle() } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(L("已选 \(plan.items.count) 项", "\(plan.items.count) selected"))
+                        Image(systemName: "chevron.up")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(showList ? 180 : 0))
+                    }
                     .font(.callout.weight(.medium))
-                Text(L("预计腾出 \(Fmt.bytes(plan.freed))", "frees about \(Fmt.bytes(plan.freed))"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+                    Text(L("预计腾出 \(Fmt.bytes(plan.freed))", "frees about \(Fmt.bytes(plan.freed))"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(plan.items.isEmpty)
+            .help(L("看看勾了哪些，不想清的可以在这里取消", "See what is ticked; untick anything you want to keep"))
+            .popover(isPresented: $showList, arrowEdge: .top) {
+                SelectedList(things: disk?.things ?? model.things, navigates: disk == nil)
+                    .frame(width: 480)
+                    .padding(16)
             }
             Spacer()
             if !plan.items.isEmpty, let reason {
@@ -239,6 +257,101 @@ struct SelectionBar: View {
         .padding(.vertical, 12)
         .glassEffect(.regular, in: .rect(cornerRadius: 18))
         .padding(16)
+    }
+}
+
+/// What is ticked, grouped by the thing it belongs to, so a total can be checked before cleaning
+/// and anything worth keeping unticked. A row unticked here stays (unticked) while the list is
+/// open, so a slip is one click to undo.
+struct SelectedList: View {
+    @Environment(AppModel.self) private var model
+    var things: [Thing]
+    /// Group titles open their list. Off for an external disk, whose list is the page itself.
+    var navigates = true
+    var maxHeight: CGFloat = 380
+    @State private var seen: Set<String> = []
+
+    private var planIDs: Set<String> {
+        Set(Planner.plan(things: things, selected: model.selection).items.map(\.id))
+    }
+
+    var body: some View {
+        let ids = planIDs
+        let shown = seen.union(ids)
+        let groups: [(thing: Thing, items: [ReclaimItem], freed: UInt64)] = things.compactMap { t in
+            let items = t.items.filter { shown.contains($0.id) }.sorted { $0.estimate > $1.estimate }
+            guard !items.isEmpty else { return nil }
+            return (t, items, items.filter { ids.contains($0.id) }.reduce(0) { $0 + $1.estimate })
+        }
+        .sorted { $0.freed == $1.freed ? $0.thing.title < $1.thing.title : $0.freed > $1.freed }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                ForEach(groups, id: \.thing.id) { g in
+                    VStack(alignment: .leading, spacing: 4) {
+                        header(g.thing, freed: g.freed)
+                        ForEach(g.items) { i in row(i, in: g.thing, on: ids.contains(i.id)) }
+                    }
+                }
+            }
+            .padding(.trailing, 8)
+        }
+        .frame(maxHeight: maxHeight)
+        .fixedSize(horizontal: false, vertical: true)
+        .onAppear { seen = ids }
+        .onChange(of: ids) { _, new in seen.formUnion(new) }
+    }
+
+    @ViewBuilder
+    private func header(_ t: Thing, freed: UInt64) -> some View {
+        let section = Section.allCases.first { $0.kind == t.kind }
+        HStack(spacing: 6) {
+            Image(systemName: section?.symbol ?? "circle").foregroundStyle(t.kind.color).frame(width: 18)
+            if navigates, let section {
+                Button { model.section = section } label: {
+                    HStack(spacing: 3) {
+                        Text(t.title).lineLimit(1)
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help(L("在「\(section.title)」里查看", "Show in \(section.title)"))
+            } else {
+                Text(t.title).lineLimit(1)
+            }
+            Spacer()
+            Text(Fmt.bytes(freed)).monospacedDigit().foregroundStyle(.secondary)
+        }
+        .font(.callout.weight(.medium))
+    }
+
+    private func row(_ i: ReclaimItem, in t: Thing, on: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Button { model.toggle(i) } label: {
+                Image(systemName: on ? "checkmark.square.fill" : "square")
+                    .foregroundStyle(on ? Color.accentColor : Color.secondary)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(i.label).lineLimit(1).foregroundStyle(on ? .primary : .secondary)
+                if let p = i.path, p != t.path {
+                    Text(Fmt.home(p)).font(.caption2).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            Spacer()
+            Text(ItemRow.amount(i)).monospacedDigit().foregroundStyle(.secondary)
+                .strikethrough(!on)
+        }
+        .font(.callout)
+        .padding(.leading, 24)
+        .contentShape(Rectangle())
+        .onTapGesture { model.toggle(i) }
+        .contextMenu {
+            if let p = i.path {
+                Button(L("在访达中显示", "Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: p)]) }
+            }
+        }
+        .help(i.reason)
     }
 }
 

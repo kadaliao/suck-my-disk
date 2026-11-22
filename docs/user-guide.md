@@ -92,8 +92,11 @@ disk you rarely need it; see [Live updates](#live-updates-and-rescanning).
 - **Capacity bar.** Used space split into Projects, Media, Dev caches, Models,
   App data, Your files, Applications, System and Other, plus Free.
 - **You can safely free.** The total of the preselected items: only things
-  that can be rebuilt, or caches that their tool cleans itself. **Clean Up**
-  opens the confirmation sheet for exactly those items.
+  that can be rebuilt, or caches that their tool cleans itself. **See the N
+  items** expands the list in place, grouped by the project or cache each item
+  belongs to, with what each one frees; untick anything you want to keep, or
+  click a group to open its list. **Clean Up** opens the confirmation sheet
+  for exactly what is ticked.
 - **"… more awaits your call."** When more than 1 GB is reclaimable but not
   preselected (simulators, the whole uv cache, projects you are still working
   on), a link takes you to it. Apps are not counted here.
@@ -139,7 +142,9 @@ Projects, Media, Dev caches, Models, Apps and App data share one layout:
   7 days, no lockfile, shared with another folder, and so on.
 - Right-click a group or an item for **Show in Finder**.
 - When anything is selected, a bar at the bottom shows how many items and how
-  much they free, with a **Clean Up…** button.
+  much they free, with a **Clean Up…** button. Click **N selected** to see
+  every ticked item, including those ticked in other lists, and untick any of
+  them there.
 
 Your selection survives background refreshes.
 
