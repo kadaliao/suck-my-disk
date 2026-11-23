@@ -249,6 +249,12 @@ private struct CleanRunList: View {
                         guard done, let r = run.rows.first(where: { $0.state.message != nil }) else { return }
                         withAnimation(.smooth) { proxy.scrollTo(r.id, anchor: .center) }
                     }
+                    .onAppear {
+                        // Built again once the run has ended: where the page was left, the first
+                        // item that didn't go, or else the last one.
+                        guard run.finished, let r = run.rows.first(where: { $0.state.message != nil }) ?? run.rows.last else { return }
+                        DispatchQueue.main.async { proxy.scrollTo(r.id, anchor: .center) }
+                    }
             }
         }
         .frame(maxHeight: maxHeight)

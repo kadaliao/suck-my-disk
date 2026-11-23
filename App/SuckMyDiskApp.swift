@@ -150,7 +150,9 @@ struct RootView: View {
         .toolbarBackgroundVisibility(model.cleanRun == nil ? .automatic : .hidden, for: .windowToolbar)
         .overlay {
             if let run = model.cleanRun {
-                CleanRunView(run: run).transition(.opacity)
+                CleanRunView(run: run)
+                    .transition(.opacity)
+                    .id(model.cleanRunSettled)
             }
         }
         .sheet(isPresented: $model.confirming) { CleanSheet() }

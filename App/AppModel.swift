@@ -205,6 +205,11 @@ final class AppModel {
     var showDiskMap = false
     /// The Clean Up run on screen. It stays after the run ends, as the result, until closed.
     var cleanRun: CleanRun?
+    /// Set a second after the run ends; the page is then built again from the finished run.
+    /// After real runs, parts of the page kept showing the running state (Stop instead of Done)
+    /// although the run had ended, never in demo runs, so the result no longer depends on every
+    /// part of the page noticing the end in place.
+    private(set) var cleanRunSettled = false
     var history: [ReportStore.DayPoint] = [] { didSet { loadDayDetail() } }
     /// The day the timeline breaks down thing by thing; nil follows the latest.
     var timelineDay: String? { didSet { loadDayDetail() } }
@@ -654,6 +659,7 @@ final class AppModel {
         let items = cleanPlan.items
         guard !items.isEmpty else { return }
         let run = CleanRun(items: items, things: disk?.things ?? things, diskName: disk?.volume.name)
+        cleanRunSettled = false
         withAnimation(.smooth(duration: 0.45)) { cleanRun = run }
         // Demo items point at made-up paths and real tools: never hand them to the executor.
         if demo != nil { return await cleanDemo(run, disk: disk) }
@@ -727,6 +733,7 @@ final class AppModel {
         selection.subtract(doneIDs)
         userOn.subtract(doneIDs)
         withAnimation(.smooth(duration: 0.6)) { run.finish() }
+        settle(run)
         phase = .idle
         if disk == nil { wake?.yield() }
     }
@@ -741,6 +748,14 @@ final class AppModel {
         alert.addButton(withTitle: L("跳过此项", "Skip Item"))
         alert.addButton(withTitle: L("强制退出并继续", "Force Quit and Continue")).hasDestructiveAction = true
         return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    /// After the end of the run has been shown in place, with its animations.
+    private func settle(_ run: CleanRun) {
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            if cleanRun === run { cleanRunSettled = true }
+        }
     }
 
     /// Back to the window from a finished run.
@@ -779,6 +794,7 @@ extension AppModel {
         }
         selection.subtract(ids)
         withAnimation(.smooth(duration: 0.6)) { run.finish() }
+        settle(run)
         phase = .idle
     }
 }
