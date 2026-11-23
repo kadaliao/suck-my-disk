@@ -8,7 +8,7 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-11-22
+## [0.9.0] - 2026-11-23
 
 ### Added
 
