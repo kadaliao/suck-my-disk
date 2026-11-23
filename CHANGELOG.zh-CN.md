@@ -6,6 +6,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+## [0.10.0] - 2026-11-23
+
 ### 新增
 
 - **`smd` 随 App 一起装。** 命令行现在就在 SuckMyDisk 里面（`Contents/Helpers/smd`），跟着 App 一起更新，版本总和 App 一致。用 Homebrew 装 App 会自动把 `smd` 放进 `PATH`；其他情况下打开设置 →「命令行」点**安装**，它会把 `/usr/local/bin/smd` 链接到 App 里的这份（要输一次管理员密码）。同一处还会指出终端可能先找到的旧 `smd`，比如 Homebrew 单独装的 `smd`，它不跟着 App 更新。
@@ -257,7 +259,8 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 - 中文和英文，跟随系统语言。
 - **`smd` 命令行**，和 App 用同一个引擎、同一份索引：`smd things`、`smd reclaim`（默认只预演）、`smd hibernate`、`smd wake`、`smd journal`。
 
-[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.9.1...HEAD
+[未发布]: https://github.com/kadaliao/suck-my-disk/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.0...v0.8.1

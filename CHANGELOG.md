@@ -8,6 +8,8 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-23
+
 ### Added
 
 - **`smd` comes with the app.** The command line is now inside SuckMyDisk (`Contents/Helpers/smd`) and updates with it, so it is always the same version as the app. Installing the app with Homebrew puts `smd` on your `PATH`. Otherwise open Settings → **Command Line** and click **Install**: that links `/usr/local/bin/smd` to the app's copy (it takes an administrator password once). The same section points out an older `smd` your shell may find first, such as Homebrew's separate `smd` formula, which doesn't update with the app.
@@ -454,7 +456,8 @@ Developer ID and notarized.
   `smd reclaim` (dry run by default), `smd hibernate`, `smd wake`,
   `smd journal`.
 
-[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.0...v0.8.1
