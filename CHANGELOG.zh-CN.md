@@ -6,6 +6,10 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+### 新增
+
+- **`smd` 随 App 一起装。** 命令行现在就在 SuckMyDisk 里面（`Contents/Helpers/smd`），跟着 App 一起更新，版本总和 App 一致。用 Homebrew 装 App 会自动把 `smd` 放进 `PATH`；其他情况下打开设置 →「命令行」点**安装**，它会把 `/usr/local/bin/smd` 链接到 App 里的这份（要输一次管理员密码）。同一处还会指出终端可能先找到的旧 `smd`，比如 Homebrew 单独装的 `smd`，它不跟着 App 更新。
+
 ## [0.9.1] - 2026-11-23
 
 ### 修复

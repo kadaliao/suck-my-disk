@@ -37,6 +37,14 @@ targets:
         codeSign: true
         copy:
           destination: executables
+      # The command line, so it comes with every install and updates with the app. Not in
+      # Contents/MacOS: a program there counts as the app itself (its preferences, its language).
+      - target: smd
+        embed: true
+        codeSign: true
+        copy:
+          destination: wrapper
+          subpath: Contents/Helpers
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kadaliao.SuckMyDisk
@@ -68,4 +76,21 @@ targets:
         CREATE_INFOPLIST_SECTION_IN_BINARY: YES
         INFOPLIST_KEY_CFBundleDisplayName: SuckMyDisk Helper
         # Xcode gives a command-line tool an application-identifier entitlement; the helper has none.
+        ENTITLEMENTS_REQUIRED: NO
+  # The same program `swift build --product smd` makes, built here so the app can carry it.
+  smd:
+    type: tool
+    platform: macOS
+    sources:
+      - Packages/DiskCore/Sources/smd
+    dependencies:
+      - package: DiskCore
+        product: DiskCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kadaliao.SuckMyDisk.smd
+        PRODUCT_NAME: smd
+        # The package builds it in Swift 6 mode.
+        SWIFT_VERSION: "6.0"
+        SKIP_INSTALL: YES
         ENTITLEMENTS_REQUIRED: NO

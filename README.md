@@ -90,12 +90,12 @@ back.
 **Homebrew.**
 
 ```sh
-brew install --cask kadaliao/tap/suck-my-disk   # the app
-brew install kadaliao/tap/smd                   # the command line
+brew install --cask kadaliao/tap/suck-my-disk
 ```
 
-The app still updates itself, so `brew upgrade` skips it unless you add
-`--greedy`; `brew upgrade smd` updates the command line.
+The app comes with `smd`, its command line, and Homebrew puts it on your
+`PATH`. The app still updates itself, and `smd` with it, so `brew upgrade`
+skips it unless you add `--greedy`.
 
 **App.** Download `SuckMyDisk-<version>.dmg` from
 [Releases](https://github.com/kadaliao/suck-my-disk/releases/latest), open it,
@@ -103,15 +103,22 @@ and drag SuckMyDisk into Applications. (The same app is also there as a
 `.zip`.) Builds are signed with a Developer ID and notarized by Apple, so they
 open without a warning. From 0.5.0 on, the app keeps itself up to date from the
 same page (see [Updating SuckMyDisk](docs/user-guide.md#updating-suckmydisk)).
+`smd` is inside the app: to use it in Terminal, open **Settings** (⌘,) and
+click **Install** under **Command Line**. That links `/usr/local/bin/smd` to
+the app's copy and takes an administrator password once.
 
-**Command line.** Download `smd-<version>-macos.zip` from the same page and put
-`smd` somewhere on your `PATH`:
+**Command line only.** Without the app, `brew install kadaliao/tap/smd`, or
+download `smd-<version>-macos.zip` from the same page and put `smd` somewhere
+on your `PATH`:
 
 ```sh
 unzip smd-*-macos.zip
 mkdir -p ~/.local/bin && mv smd ~/.local/bin/
 smd help
 ```
+
+This copy doesn't update with the app (`brew upgrade smd` updates Homebrew's).
+If you install the app later, remove it and use the app's.
 
 `SHA256SUMS` on the release page lists checksums for every download.
 

@@ -12,6 +12,7 @@ App/                          SwiftUI app (macOS 26, Liquid Glass)
   AppModel.swift              state: index, live loop, report, selection, cleanup
   Updater.swift               self-update schedule: when to check, download, install, relaunch
   Helper.swift                turns the root helper on and off (SMAppService), shows its state
+  CommandLineTool.swift       finds the smd your shell sees; links /usr/local/bin/smd to the app's
   Snapshotter.swift           --snapshot mode: renders every section to PNG
   Demo.swift                  --demo mode: made-up data for screenshots and trying the app
   Views/                      Overview, Category (reclaim lists), Treemap, Timeline, Clean Up page, shared components
@@ -24,7 +25,7 @@ Packages/DiskCore/            Swift package: the engine and the smd CLI
   Sources/Reclaim/            executor: re-checks guards, acts, writes the journal
   Sources/Update/             self-update: GitHub release, checksum and signature checks, swap, relaunch
   Sources/Privileged/         what the root helper does and how the app reaches it (no other module in it)
-  Sources/smd/                command line
+  Sources/smd/                command line (also built into the app as Contents/Helpers/smd)
   Tests/DiskCoreTests/        Swift Testing suites
 Helper/                       the root helper's program and launchd job (built into the app)
 scripts/                      release, icon and screenshot tooling
@@ -174,6 +175,8 @@ App 关了一段时间再打开，追上改动大约要 0.3–1 秒；持续跟�
 - **生命周期。** launchd 按需启动（`MachServices`），空闲 30 秒自己退出。`hello` 返回 `Privileged.version`；更新之前留下来的旧助手会被要求 `quit`，由新的程序来回答。
 
 `smd` 不用助手（它的签名不是 App 的），演示、截图和非正式构建从不注册它。
+
+App 里带着 `smd`，位置是 `Contents/Helpers/smd`（Xcode 里的 `smd` 目标，用 `Sources/smd` 构建），所以每种安装方式都有它，更新器换掉整个包时它也跟着更新。它不放在 `Contents/MacOS`：放在那里的程序算作 App 本身，会读 App 的偏好设置、跟着 App 的「语言」设置走。Homebrew 的 cask 把它链接到 Homebrew 的 `bin`；设置里可以把它链接到 `/usr/local/bin`，用的是 `osascript` 执行 `do shell script … with administrator privileges`，SuckMyDisk 自己没有任何部分为此以 root 运行。
 
 ## 自动更新（`Update`、`Updater`）
 

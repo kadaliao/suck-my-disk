@@ -612,6 +612,14 @@ you make yourself don't update.
 system language, not the app's Language setting; set `SMD_LANG=zh` or
 `SMD_LANG=en` to force one.
 
+`smd` comes inside the app (`SuckMyDisk.app/Contents/Helpers/smd`) and updates
+with it. When Homebrew installs the app, it links `smd` into its `bin` folder.
+Otherwise open **Settings** (⌘,) and click **Install** under **Command Line**:
+that links `/usr/local/bin/smd` to the app's copy and takes an administrator
+password once; **Remove** takes the link away. The same section points out
+other copies your shell may find first, such as Homebrew's separate `smd`
+formula or one from the CLI download, which don't update with the app.
+
 ### `smd things`
 
 What uses space and what can go. Read-only.
@@ -874,8 +882,10 @@ preferences.
 ## Uninstalling
 
 1. If you turned on [the helper](#uninstalling-without-a-password), turn it
-   off in Settings. Then quit SuckMyDisk.
-2. Delete `/Applications/SuckMyDisk.app`, and `smd` from wherever you put it.
+   off in Settings, and if you installed `smd` there, click **Remove** under
+   **Command Line**. Then quit SuckMyDisk.
+2. Delete `/Applications/SuckMyDisk.app`, and any separate `smd` you put on
+   your `PATH`.
 3. Delete its data:
 
    ```sh
@@ -887,7 +897,8 @@ preferences.
    Full Disk Access.
 
 If you installed with Homebrew, `brew uninstall --cask --zap suck-my-disk`
-and `brew uninstall smd` do steps 1–3 (the data goes to the Trash).
+does steps 1–3 (the data goes to the Trash) and removes its `smd` link;
+`brew uninstall smd` removes the separate formula if you have it.
 
 ## FAQ and troubleshooting
 

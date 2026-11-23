@@ -14,6 +14,7 @@ App/                          SwiftUI app (macOS 26, Liquid Glass)
   AppModel.swift              state: index, live loop, report, selection, cleanup
   Updater.swift               self-update schedule: when to check, download, install, relaunch
   Helper.swift                turns the root helper on and off (SMAppService), shows its state
+  CommandLineTool.swift       finds the smd your shell sees; links /usr/local/bin/smd to the app's
   Snapshotter.swift           --snapshot mode: renders every section to PNG
   Demo.swift                  --demo mode: made-up data for screenshots and trying the app
   Views/                      Overview, Category (reclaim lists), Treemap, Timeline, Clean Up page, shared components
@@ -26,7 +27,7 @@ Packages/DiskCore/            Swift package: the engine and the smd CLI
   Sources/Reclaim/            executor: re-checks guards, acts, writes the journal
   Sources/Update/             self-update: GitHub release, checksum and signature checks, swap, relaunch
   Sources/Privileged/         what the root helper does and how the app reaches it (no other module in it)
-  Sources/smd/                command line
+  Sources/smd/                command line (also built into the app as Contents/Helpers/smd)
   Tests/DiskCoreTests/        Swift Testing suites
 Helper/                       the root helper's program and launchd job (built into the app)
 scripts/                      release, icon and screenshot tooling
@@ -396,6 +397,14 @@ It is root, so it is small and trusts nothing it is sent:
 
 `smd` doesn't use the helper (its signature isn't the app's), and demo,
 snapshot and non-release builds never register it.
+
+The app carries `smd` as `Contents/Helpers/smd` (the Xcode target `smd`, built
+from `Sources/smd`), so every install has it and the updater's bundle swap
+updates it. It is not in `Contents/MacOS`: a program there counts as the app,
+so it would read the app's preferences and follow its Language setting. The
+Homebrew cask links it into Homebrew's `bin`; Settings can link it into
+`/usr/local/bin` with `do shell script … with administrator privileges`, run
+by `osascript`, so nothing of SuckMyDisk runs as root for it.
 
 ## Updates (`Update`, `Updater`)
 

@@ -111,6 +111,7 @@ struct SettingsView: View {
     @Environment(Helper.self) private var helper
     @AppStorage(Appearance.key) private var appearance = Appearance.system
     @State private var language = Language.saved
+    @State private var cli = CommandLineTool()
 
     var body: some View {
         @Bindable var updater = updater
@@ -138,6 +139,55 @@ struct SettingsView: View {
             }
             .onChange(of: appearance) { Appearance.apply(appearance) }
             .onChange(of: language) { Language.save(language) }
+
+            if cli.bundled != nil {
+                SwiftUI.Section {
+                    if let installed = cli.installed {
+                        HStack {
+                            Label(installed.path, systemImage: "checkmark.circle.fill")
+                                .symbolRenderingMode(.multicolor)
+                                .textSelection(.enabled)
+                            Spacer()
+                            if installed.path == CommandLineTool.link {
+                                Button(L("移除", "Remove"), action: cli.remove).disabled(cli.isWorking)
+                            }
+                        }
+                    } else {
+                        HStack {
+                            Text(L("终端里还找不到 smd", "Your shell can't find smd yet"))
+                            Spacer()
+                            if cli.isWorking { ProgressView().controlSize(.small) }
+                            Button(L("安装", "Install"), action: cli.install)
+                                .disabled(cli.isWorking || !cli.canInstall)
+                        }
+                    }
+                    ForEach(cli.copies.filter { !$0.current }) { c in
+                        Label(cliNote(c), systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                            .textSelection(.enabled)
+                    }
+                    if cli.installed == nil, !cli.appIsInPlace {
+                        Text(L("先把 SuckMyDisk 移到“应用程序”文件夹再安装：现在它从磁盘映像或下载文件夹里运行，链接会失效。",
+                               "Move SuckMyDisk to the Applications folder first: it is running from the disk image or Downloads, and a link to it there would break."))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let problem = cli.problem {
+                        Label(problem, systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                    }
+                } header: {
+                    Text(L("命令行", "Command Line"))
+                } footer: {
+                    Text(L("smd 和 App 用同一个引擎、同一份索引，加 --json 输出 JSON，方便脚本和编程 agent 调用；运行 smd help 看用法。它在 App 里面，跟着 App 一起更新。安装会在 /usr/local/bin 放一个指向它的链接，要输一次管理员密码；用 Homebrew 安装 App 时会自动链接。",
+                           "smd uses the same engine and index as the app and prints JSON with --json, for scripts and coding agents; run smd help to see what it does. It is inside the app and updates with it. Installing puts a link to it in /usr/local/bin and takes an administrator password once; Homebrew links it when it installs the app."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .onAppear { cli.refresh() }
+            }
 
             SwiftUI.Section {
                 Toggle(L("卸载系统应用时不用输密码", "Uninstall system apps without a password"), isOn: helperOn)
@@ -197,6 +247,30 @@ struct SettingsView: View {
             NSApp.terminate(nil)
         } catch {
             NSAlert(error: error).runModal()
+        }
+    }
+
+    /// An smd that doesn't update with the app, or a link that no longer leads anywhere.
+    private func cliNote(_ c: CommandLineTool.Copy) -> String {
+        let here = c.path == CommandLineTool.link && cli.installed == nil
+        if c.broken {
+            return here
+                ? L("\(c.path) 指向的 SuckMyDisk 已经不在原处，点“安装”重新链接。", "\(c.path) leads to a SuckMyDisk that is no longer there. Install links it again.")
+                : L("\(c.path) 指向的 SuckMyDisk 已经不在原处。用 Homebrew 装的话：brew reinstall --cask suck-my-disk",
+                    "\(c.path) leads to a SuckMyDisk that is no longer there. If Homebrew installed the app: brew reinstall --cask suck-my-disk")
+        }
+        switch c.kind {
+        case .formula:
+            return L("\(c.path) 是 Homebrew 单独装的 smd，不跟着 App 更新，终端可能先找到它。改用 App 里的这份：brew uninstall smd",
+                     "\(c.path) is Homebrew's separate smd: it doesn't update with the app, and your shell may find it first. To use the app's: brew uninstall smd")
+        case .other:
+            return here
+                ? L("\(c.path) 是单独放进去的一份，不跟着 App 更新。点“安装”会换成 App 里的这份。",
+                    "\(c.path) was put there by hand and doesn't update with the app. Install replaces it with the app's.")
+                : L("\(c.path) 是单独放进去的一份，不跟着 App 更新，终端可能先找到它，可以删掉。",
+                    "\(c.path) was put there by hand: it doesn't update with the app, and your shell may find it first. You can delete it.")
+        case .app:
+            return c.path
         }
     }
 

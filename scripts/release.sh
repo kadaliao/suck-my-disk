@@ -52,11 +52,11 @@ ditto build/DerivedData/Build/Products/Release/SuckMyDisk.app "$STAGE/SuckMyDisk
 # Installs come from GitHub: leave no runnable copy of the app in the build folder.
 rm -rf build/DerivedData/Build/Products/Release/SuckMyDisk.app
 
-echo "▸ smd"
-SWIFT_ARGS=(--package-path Packages/DiskCore -c release --arch arm64 --arch x86_64)
-swift build "${SWIFT_ARGS[@]}" --product smd
-cp "$(swift build "${SWIFT_ARGS[@]}" --show-bin-path)/smd" "$STAGE/smd"
-codesign --force --options runtime --timestamp --sign "$IDENTITY" "$STAGE/smd"
+# The command line is built with the app and lives inside it; the CLI download is the same file.
+SMD="$STAGE/SuckMyDisk.app/Contents/Helpers/smd"
+for arch in arm64 x86_64; do
+  lipo "$SMD" -verify_arch "$arch" || { echo "smd has no $arch slice" >&2; exit 1; }
+done
 
 codesign --verify --deep --strict "$STAGE/SuckMyDisk.app"
 # The app only talks to a helper with this identifier and team, and the helper only to the app:
@@ -66,7 +66,8 @@ HELPER="$STAGE/SuckMyDisk.app/Contents/MacOS/com.kadaliao.SuckMyDisk.helper"
 codesign --verify --strict -R="identifier \"com.kadaliao.SuckMyDisk.helper\" and anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$HELPER"
 codesign --verify --strict -R="identifier \"com.kadaliao.SuckMyDisk\" and anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$STAGE/SuckMyDisk.app"
 plutil -lint -s "$STAGE/SuckMyDisk.app/Contents/Library/LaunchDaemons/com.kadaliao.SuckMyDisk.helper.plist"
-codesign --verify --strict "$STAGE/smd"
+codesign --verify --strict -R="identifier \"smd\" and anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$SMD"
+"$SMD" help >/dev/null
 
 if [ ${#NOTARY[@]} -gt 0 ]; then
   echo "▸ notarize"
@@ -93,7 +94,7 @@ if [ ${#NOTARY[@]} -gt 0 ]; then
 fi
 
 ditto -c -k --keepParent "$STAGE/SuckMyDisk.app" "$OUT/SuckMyDisk-$VERSION.zip"
-ditto -c -k "$STAGE/smd" "$OUT/smd-$VERSION-macos.zip"
+ditto -c -k "$SMD" "$OUT/smd-$VERSION-macos.zip"
 # Only the archives stay: a loose copy of the app here would show up in Spotlight and Open With.
 rm -rf "$STAGE"
 (cd "$OUT" && shasum -a 256 ./*.dmg ./*.zip | sed 's| \./| |' > SHA256SUMS)

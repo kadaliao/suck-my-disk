@@ -75,9 +75,10 @@ place to change it.
    It first checks that the notarizing credentials work, and stops if they
    don't. `NOTARIZE=0` builds and signs without notarizing.
 
-   This regenerates the Xcode project, builds the app (Release), builds `smd`
-   as a universal binary (arm64 + x86_64), signs both with the hardened
-   runtime, submits them for notarization and waits, staples the app, and
+   This regenerates the Xcode project, builds the app (Release) with `smd`
+   inside it (`Contents/Helpers/smd`; both universal, arm64 + x86_64), signs
+   them with the hardened runtime, submits the app for notarization and waits,
+   staples the app, and
    checks it with `spctl`. It then builds the disk image (the app next to a
    link to Applications), signs, notarizes and staples that too, and deletes
    the loose staging copy of the app. Without credentials everything is
@@ -89,7 +90,7 @@ place to change it.
    | --- | --- |
    | `SuckMyDisk-<version>.dmg` | the disk image most people download |
    | `SuckMyDisk-<version>.zip` | the stapled app, zipped |
-   | `smd-<version>-macos.zip` | the CLI |
+   | `smd-<version>-macos.zip` | the CLI: the same `smd` as inside the app |
    | `SHA256SUMS` | checksums of all three |
 
 5. **Smoke test** the DMG on a Mac (ideally one that didn't build it): open
@@ -145,7 +146,8 @@ place to change it.
    `smd-<version>-macos.zip`; if you rename them, change the URLs in the tap
    too. The cask is marked `auto_updates`: people who installed the app with
    Homebrew get the release from the in-app updater anyway, so the tap is
-   what new installs and `brew upgrade smd` see.
+   what new installs and `brew upgrade smd` see. The cask's `binary` stanza
+   links the app's `Contents/Helpers/smd`: if you move it, change the cask.
 
 ## If something fails
 

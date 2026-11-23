@@ -79,25 +79,28 @@ SuckMyDisk 告诉你那*是什么*、能不能重新生成、删了实际能腾�
 **Homebrew。**
 
 ```sh
-brew install --cask kadaliao/tap/suck-my-disk   # App
-brew install kadaliao/tap/smd                   # 命令行
+brew install --cask kadaliao/tap/suck-my-disk
 ```
 
-App 会自己更新，所以 `brew upgrade` 默认跳过它，要用 brew 升级就加 `--greedy`；命令行用 `brew upgrade smd` 升级。
+App 自带命令行 `smd`，Homebrew 会把它放进 `PATH`。App 会自己更新，`smd` 也跟着更新，所以 `brew upgrade` 默认跳过它，要用 brew 升级就加 `--greedy`。
 
 **App。** 从 [Releases](https://github.com/kadaliao/suck-my-disk/releases/latest)
 下载 `SuckMyDisk-<version>.dmg`，打开后把 SuckMyDisk 拖进「应用程序」。
 （同一个 App 也有 `.zip` 版。）安装包用 Developer ID 签名，并经过 Apple 公证，
 打开时不会弹安全警告。从 0.5.0 起，App 会从同一个页面自己更新（见[自动更新](docs/user-guide.zh-CN.md#自动更新)）。
+`smd` 就在 App 里：想在终端里用，打开**设置**（⌘,），在「命令行」下点**安装**。
+它会把 `/usr/local/bin/smd` 链接到 App 里的这份，要输一次管理员密码。
 
-**命令行。** 在同一个页面下载 `smd-<version>-macos.zip`，把 `smd` 放到 `PATH`
-里的某个目录：
+**只要命令行。** 不装 App 的话，用 `brew install kadaliao/tap/smd`，或者在同一个页面下载
+`smd-<version>-macos.zip`，把 `smd` 放到 `PATH` 里的某个目录：
 
 ```sh
 unzip smd-*-macos.zip
 mkdir -p ~/.local/bin && mv smd ~/.local/bin/
 smd help
 ```
+
+这样装的 `smd` 不跟着 App 更新（Homebrew 装的用 `brew upgrade smd` 升级）。以后装了 App，就删掉它，改用 App 里的那份。
 
 发布页上的 `SHA256SUMS` 列出了每个下载文件的校验值。
 

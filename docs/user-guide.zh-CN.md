@@ -481,6 +481,12 @@ SuckMyDisk 从磁盘映像或被隔离的位置运行时（先把它拖进「应
 `smd` 和 App 用的是同一个引擎、同一份索引、同一份日志。输出跟随系统语言，
 不受 App 设置里的「语言」影响；设置 `SMD_LANG=zh` 或 `SMD_LANG=en` 可以强制指定。
 
+`smd` 装在 App 里面（`SuckMyDisk.app/Contents/Helpers/smd`），跟着 App 一起更新。
+用 Homebrew 装 App 时，它会被链接到 Homebrew 的 `bin` 目录。其他情况下打开**设置**（⌘,），
+在「命令行」下点**安装**：它会把 `/usr/local/bin/smd` 链接到 App 里的这份，要输一次管理员密码；
+点**移除**会删掉这个链接。同一处还会指出终端可能先找到的其他 `smd`，比如 Homebrew 单独装的
+`smd`，或者从命令行压缩包里拿的那份，它们不跟着 App 更新。
+
 ### `smd things`
 
 看看空间被谁占了、能腾出多少。只读。
@@ -688,8 +694,8 @@ App 和命令行都遵守这些规则，任何识别器都不能绕过。
 
 ## 卸载
 
-1. 如果打开过[卸载助手](#卸载时不用输密码)，先在设置里把它关掉。然后退出 SuckMyDisk。
-2. 删除 `/Applications/SuckMyDisk.app`，以及你放 `smd` 的那个文件。
+1. 如果打开过[卸载助手](#卸载时不用输密码)，先在设置里把它关掉；在设置里装过 `smd` 的话，在「命令行」下点**移除**。然后退出 SuckMyDisk。
+2. 删除 `/Applications/SuckMyDisk.app`，以及你另外放进 `PATH` 的 `smd`。
 3. 删除它的数据：
 
    ```sh
@@ -699,7 +705,7 @@ App 和命令行都遵守这些规则，任何识别器都不能绕过。
 
 4. 也可以在 系统设置 → 隐私与安全性 → 完全磁盘访问权限 里把 SuckMyDisk 移除。
 
-如果是用 Homebrew 装的，`brew uninstall --cask --zap suck-my-disk` 和 `brew uninstall smd` 就完成了第 1–3 步（数据会移到废纸篓）。
+如果是用 Homebrew 装的，`brew uninstall --cask --zap suck-my-disk` 就完成了第 1–3 步（数据会移到废纸篓），也会删掉它的 `smd` 链接；单独装过 `smd` 的话，再运行 `brew uninstall smd`。
 
 ## 常见问题
 

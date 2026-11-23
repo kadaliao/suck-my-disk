@@ -8,6 +8,10 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`smd` comes with the app.** The command line is now inside SuckMyDisk (`Contents/Helpers/smd`) and updates with it, so it is always the same version as the app. Installing the app with Homebrew puts `smd` on your `PATH`. Otherwise open Settings → **Command Line** and click **Install**: that links `/usr/local/bin/smd` to the app's copy (it takes an administrator password once). The same section points out an older `smd` your shell may find first, such as Homebrew's separate `smd` formula, which doesn't update with the app.
+
 ## [0.9.1] - 2026-11-23
 
 ### Fixed

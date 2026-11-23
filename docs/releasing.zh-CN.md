@@ -53,7 +53,7 @@
 
    脚本一开始会先确认公证凭据能用，不能用就停下。`NOTARIZE=0` 表示只构建、签名，不公证。
 
-   脚本会重新生成 Xcode 工程，以 Release 配置构建 App，把 `smd` 构建成通用二进制（arm64 + x86_64），给两者都用 hardened runtime 签名，提交公证并等待结果，给 App 钉上公证票据（staple），用 `spctl` 检查。接着做磁盘映像（App 旁边放一个「应用程序」的快捷方式），同样签名、公证、钉票据，最后删掉暂存目录里散放的 App。没有凭据时，所有产物只签名、不公证；这样的包不要发布。
+   脚本会重新生成 Xcode 工程，以 Release 配置构建 App，`smd` 一起构建进 App（`Contents/Helpers/smd`，两者都是 arm64 + x86_64 通用二进制），用 hardened runtime 签名，提交 App 公证并等待结果，给 App 钉上公证票据（staple），用 `spctl` 检查。接着做磁盘映像（App 旁边放一个「应用程序」的快捷方式），同样签名、公证、钉票据，最后删掉暂存目录里散放的 App。没有凭据时，所有产物只签名、不公证；这样的包不要发布。
 
    产物在 `build/release/`：
 
@@ -61,7 +61,7 @@
    | --- | --- |
    | `SuckMyDisk-<version>.dmg` | 大多数人下载的磁盘映像 |
    | `SuckMyDisk-<version>.zip` | 已钉上公证票据的 App 压缩包 |
-   | `smd-<version>-macos.zip` | 命令行工具 |
+   | `smd-<version>-macos.zip` | 命令行工具，和 App 里的 `smd` 是同一个文件 |
    | `SHA256SUMS` | 三个文件的校验和 |
 
 5. **冒烟测试。** 在一台 Mac 上（最好不是构建用的那台）打开 DMG，把 App 拖进「应用程序」再打开，在「关于 SuckMyDisk」里核对版本号，再用命令行压缩包里的 `smd` 跑一下 `smd things`。
@@ -98,7 +98,7 @@
    gh workflow run bump.yml -R kadaliao/homebrew-tap
    ```
 
-   pre-release 会被跳过。tap 下载的是 `SuckMyDisk-<version>.zip` 和 `smd-<version>-macos.zip`，改名时要去 tap 里一起改下载地址。这个 cask 标了 `auto_updates`：用 Homebrew 装 App 的人照样通过 App 内更新拿到新版本，所以 tap 影响的是新安装和 `brew upgrade smd`。
+   pre-release 会被跳过。tap 下载的是 `SuckMyDisk-<version>.zip` 和 `smd-<version>-macos.zip`，改名时要去 tap 里一起改下载地址。这个 cask 标了 `auto_updates`：用 Homebrew 装 App 的人照样通过 App 内更新拿到新版本，所以 tap 影响的是新安装和 `brew upgrade smd`。cask 的 `binary` 一行链接的是 App 里的 `Contents/Helpers/smd`，挪了位置要去 cask 里一起改。
 
 ## 出问题时
 
