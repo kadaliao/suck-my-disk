@@ -8,6 +8,12 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-23
+
+### Fixed
+
+- The Clean Up page could keep showing Stop after the run had finished, so it couldn't be closed. A second after the run ends, the page is now redrawn from the result: the button shows Done, and the list scrolls to the first item that wasn't cleaned.
+
 ## [0.9.0] - 2026-11-23
 
 ### Added
@@ -444,7 +450,8 @@ Developer ID and notarized.
   `smd reclaim` (dry run by default), `smd hibernate`, `smd wake`,
   `smd journal`.
 
-[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/kadaliao/suck-my-disk/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/kadaliao/suck-my-disk/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/kadaliao/suck-my-disk/compare/v0.7.1...v0.8.0
