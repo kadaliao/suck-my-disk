@@ -26,8 +26,7 @@ public enum DevCacheRecognizer {
         }
         simple("npm", "npm cache", h + "/.npm/_cacache", tool: "npm", argv: ["npm", "cache", "clean", "--force"],
                reason: L("npm 下载缓存，需要时会重新下载", "npm download cache, re-downloaded on demand"), preselect: true)
-        simple("bun", "bun cache", h + "/.bun/install/cache", tool: "bun", argv: ["bun", "pm", "cache", "rm"],
-               reason: L("bun 下载缓存", "bun download cache"), preselect: true)
+        if let t = bun(ctx) { things.append(t) }
         simple("yarn", "Yarn cache", h + "/Library/Caches/Yarn", tool: "yarn", argv: ["yarn", "cache", "clean"],
                reason: L("Yarn 下载缓存", "Yarn download cache"), preselect: true)
         simple("pip", "pip cache", h + "/Library/Caches/pip", tool: nil, argv: nil,
@@ -59,6 +58,25 @@ public enum DevCacheRecognizer {
         if let t = derivedData(ctx) { things.append(t) }
         if let t = docker(ctx) { things.append(t) }
         return things
+    }
+
+    // MARK: bun
+
+    /// bun's own `pm cache rm` only runs inside a project: it looks for a package.json
+    /// above the working directory, and an app opened from Finder works in "/", so it
+    /// exits 1 without clearing anything (`-g` and `--cwd` only move the search to
+    /// `~/.bun/install/global`). The folder holds downloaded tarballs and the packages
+    /// bunx unpacked, which is what `cache rm` deletes, so it is deleted directly.
+    static func bun(_ ctx: RecognizeContext) -> Thing? {
+        let path = ctx.home + "/.bun/install/cache"
+        let bytes = ctx.size(path)
+        guard bytes >= 50_000_000 else { return nil }
+        return Thing(id: "cache:bun", kind: .devCache, title: "bun cache", path: path, bytes: bytes, items: [
+            ReclaimItem(id: "cache:bun", label: "bun cache", path: path, bytes: bytes, tier: .regenerable,
+                        action: .delete(path: path),
+                        reason: L("bun 下载缓存，需要时会重新下载", "bun download cache, re-downloaded on demand"),
+                        preselected: true),
+        ])
     }
 
     // MARK: uv

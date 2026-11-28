@@ -349,6 +349,21 @@ final class Fixture {
         #expect(DevCacheRecognizer.npx(context(tree), base: f.path("npx")) == nil)
     }
 
+    /// The app is opened from Finder, so its working directory is "/", where bun's
+    /// `pm cache rm` finds no package.json and exits 1. Its cache folder holds what that
+    /// command deletes, so it goes directly.
+    @Test func bunCacheIsDeletedDirectly() throws {
+        let f = try Fixture()
+        try f.file(".bun/install/cache/some-package-1.0.0.tgz", mb: 60)
+        var c = RecognizeContext(tree: f.scan(), activity: ActivityIndex(), home: f.root)
+        c.allowAnyPath = true
+        let t = try #require(DevCacheRecognizer.bun(c))
+        #expect(t.id == "cache:bun")
+        #expect(t.items.count == 1)
+        #expect(t.items[0].action == .delete(path: f.path(".bun/install/cache")))
+        #expect(t.items[0].preselected)
+    }
+
     @Test func frameSequenceVersusCameraBurst() throws {
         let f = try Fixture()
         for i in 0..<320 { try f.png(String(format: "render/frames/%05d.png", i)) }

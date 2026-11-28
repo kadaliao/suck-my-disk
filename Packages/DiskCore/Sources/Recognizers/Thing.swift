@@ -174,7 +174,7 @@ public struct RecognizeContext: @unchecked Sendable {
     public let activity: ActivityIndex
     public let now: Date
     public let sleepAfterDays: Int
-    public let home = NSHomeDirectory()
+    public let home: String
     /// Look everywhere in the tree, not just the home folder: external disks, and test fixtures.
     public var allowAnyPath = false
     /// Folders recognizers must not read files in (user-visible paths): see `Privacy`.
@@ -182,11 +182,13 @@ public struct RecognizeContext: @unchecked Sendable {
 
     public func isOffLimits(_ path: String) -> Bool { Privacy.isInside(path, offLimits) }
 
-    public init(tree: ScanTree, activity: ActivityIndex, now: Date = Date(), sleepAfterDays: Int = 30) {
+    public init(tree: ScanTree, activity: ActivityIndex, now: Date = Date(), sleepAfterDays: Int = 30,
+                home: String = NSHomeDirectory()) {
         self.tree = tree
         self.activity = activity
         self.now = now
         self.sleepAfterDays = sleepAfterDays
+        self.home = home
     }
 
     public func size(_ path: String) -> UInt64 {

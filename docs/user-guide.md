@@ -216,7 +216,7 @@ often hold paid text-to-speech audio and stills next to the frames.
 | npm | `npm cache clean --force` | yes |
 | npx | delete the packages npx installed in `~/.npm/_npx`, one row per package; skips any a running program uses (MCP servers often run this way) and any installed in the last 7 days | yes |
 | pnpm store | `pnpm store prune` (packages no project uses) | yes |
-| bun | `bun pm cache rm` | yes |
+| bun | delete `~/.bun/install/cache` | yes |
 | Yarn | `yarn cache clean` | yes |
 | pip | delete `~/Library/Caches/pip` | yes |
 | Homebrew | `brew cleanup --prune=all -s` | yes |
@@ -227,8 +227,9 @@ often hold paid text-to-speech audio and stills next to the frames.
 | | delete simulators not booted for 6 months | no (their apps and data are lost) |
 | Docker / OrbStack | `docker builder prune -f`, `docker image prune -f` (dangling images) | yes |
 
-When the tool is not installed, its folder is deleted instead. Caches under
-50 MB are not listed.
+When the tool is not installed, its folder is deleted instead. bun's cache is
+deleted either way: `bun pm cache rm` only runs inside a project, and an app
+opened from Finder works in `/`. Caches under 50 MB are not listed.
 
 **Why uv has three options.** uv installs packages into each `.venv` as APFS
 clones of its cache. Clones share data blocks, so clearing the cache alone

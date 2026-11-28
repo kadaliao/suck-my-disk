@@ -183,7 +183,7 @@ TTS 配音和静帧。
 | npm | `npm cache clean --force` | 是 |
 | npx | 删除 npx 装在 `~/.npm/_npx` 里的包，每个包一行；正在运行的程序在用的（MCP 服务器常这样运行）和 7 天内装的不动 | 是 |
 | pnpm store | `pnpm store prune`（没有项目在用的包） | 是 |
-| bun | `bun pm cache rm` | 是 |
+| bun | 删除 `~/.bun/install/cache` | 是 |
 | Yarn | `yarn cache clean` | 是 |
 | pip | 删除 `~/Library/Caches/pip` | 是 |
 | Homebrew | `brew cleanup --prune=all -s` | 是 |
@@ -194,7 +194,7 @@ TTS 配音和静帧。
 | | 删除半年没启动过的模拟器 | 否（里面装的 App 和数据会丢） |
 | Docker / OrbStack | `docker builder prune -f`、`docker image prune -f`（悬空镜像） | 是 |
 
-工具没装的话，就直接删它的文件夹。小于 50 MB 的缓存不列出。
+工具没装的话，就直接删它的文件夹。bun 的缓存不管装没装都是直接删：`bun pm cache rm` 只能在项目目录里运行，而从访达打开的 App 工作目录是 `/`。小于 50 MB 的缓存不列出。
 
 **为什么 uv 有三个选项。** uv 往每个 `.venv` 里装包时，用的是从缓存 APFS 克隆出来的文件。
 克隆文件共享数据块，所以单清缓存，只能腾出没有 `.venv` 在用的那部分；单删 `.venv`，

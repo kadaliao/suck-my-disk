@@ -6,6 +6,10 @@ SuckMyDisk 的所有重要变化都记在这里。格式参照 [Keep a Changelog
 
 ## [未发布]
 
+### 修复
+
+- **bun 缓存**清理会失败，报 `exit 1: error: No package.json was found for directory "/"`。bun 的 `pm cache rm` 只能在项目目录里运行，而从访达打开的 App 工作目录是 `/`；加 `-g` 或 `--cwd` 也没用，它们只是把查找起点换到 `~/.bun/install/global`。现在直接删除 `~/.bun/install/cache`，删掉的内容和那条命令本来要删的一样（下载的包，以及 bun 解压出来的 bunx 目录）。
+
 ## [0.10.0] - 2026-11-23
 
 ### 新增

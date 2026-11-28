@@ -8,6 +8,10 @@ All notable changes to SuckMyDisk. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **bun cache** could fail with `exit 1: error: No package.json was found for directory "/"`. bun's `pm cache rm` only runs inside a project, and an app opened from Finder works in `/`; `-g` and `--cwd` don't help, as they only move the search to `~/.bun/install/global`. `~/.bun/install/cache` is now deleted directly, which removes what that command would have (downloaded packages and the bunx trees bun unpacked).
+
 ## [0.10.0] - 2026-11-23
 
 ### Added
