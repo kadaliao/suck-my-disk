@@ -350,18 +350,154 @@ final class Fixture {
     }
 
     /// The app is opened from Finder, so its working directory is "/", where bun's
-    /// `pm cache rm` finds no package.json and exits 1. Its cache folder holds what that
-    /// command deletes, so it goes directly.
-    @Test func bunCacheIsDeletedDirectly() throws {
+    /// `pm cache rm` finds no package.json. It runs from a project of ours instead, and
+    /// only when the cache location is the default one; otherwise the item only guides.
+    @Test func bunCacheRunsItsOwnCommandInOurProject() throws {
+        let f = try Fixture()
+        try f.file(".bun/install/cache/some-package-1.0.0.tgz", mb: 60)
+        try f.file("project/package.json", text: #"{"private":true}"#)
+        var c = RecognizeContext(tree: f.scan(), activity: ActivityIndex(),
+                                 now: Date().addingTimeInterval(30 * 86400), home: f.root)
+        c.allowAnyPath = true
+        let t = try #require(DevCacheRecognizer.bun(c, installed: true, project: f.path("project"),
+                                                    cacheDir: { _ in f.path(".bun/install/cache") }))
+        #expect(t.id == "cache:bun")
+        #expect(t.items.count == 1)
+        #expect(t.items[0].action == .command(argv: ["bun", "pm", "cache", "rm"], cwd: f.path("project")))
+        #expect(t.items[0].tier == .regenerable)
+        #expect(t.items[0].restore != nil)   // both languages come from L()
+        #expect(t.items[0].preselected)
+    }
+
+    /// The cache was written just now: Clean Up would skip it, so it is not in the
+    /// default plan and says why.
+    @Test func bunCacheIsNotPreselectedWhileFresh() throws {
         let f = try Fixture()
         try f.file(".bun/install/cache/some-package-1.0.0.tgz", mb: 60)
         var c = RecognizeContext(tree: f.scan(), activity: ActivityIndex(), home: f.root)
         c.allowAnyPath = true
-        let t = try #require(DevCacheRecognizer.bun(c))
-        #expect(t.id == "cache:bun")
-        #expect(t.items.count == 1)
-        #expect(t.items[0].action == .delete(path: f.path(".bun/install/cache")))
-        #expect(t.items[0].preselected)
+        let item = try #require(DevCacheRecognizer.bun(c, installed: true, project: f.path("project"),
+                                                       cacheDir: { _ in f.path(".bun/install/cache") })?.items[0])
+        #expect(!item.preselected)
+        #expect(!item.warnings.isEmpty)
+    }
+
+    /// A program running from the cache is using it: not in the default plan either,
+    /// and the warning names it.
+    @Test func bunCacheIsNotPreselectedWhileInUse() throws {
+        let f = try Fixture()
+        try f.file(".bun/install/cache/some-package-1.0.0.tgz", mb: 60)
+        let server = try f.runningProgram(using: ".bun/install/cache/in-use.js")
+        defer { server.terminate() }
+        var c = RecognizeContext(tree: f.scan(), activity: ActivityIndex(),
+                                 now: Date().addingTimeInterval(30 * 86400), home: f.root)
+        c.allowAnyPath = true
+        let item = try #require(DevCacheRecognizer.bun(c, installed: false)?.items[0])
+        #expect(!item.preselected)
+        #expect(item.warnings.contains { $0.contains("PID") || $0.contains(String(server.processIdentifier)) })
+    }
+
+    /// Nothing to run: the folder is deleted, as the command would have.
+    @Test func bunCacheIsDeletedWhenBunIsMissing() throws {
+        let f = try Fixture()
+        try f.file(".bun/install/cache/some-package-1.0.0.tgz", mb: 60)
+        var c = RecognizeContext(tree: f.scan(), activity: ActivityIndex(),
+                                 now: Date().addingTimeInterval(30 * 86400), home: f.root)
+        c.allowAnyPath = true
+        let item = try #require(DevCacheRecognizer.bun(c, installed: false)?.items[0])
+        #expect(item.action == .delete(path: f.path(".bun/install/cache")))
+        #expect(item.preselected)
+    }
+
+    /// $BUN_INSTALL and friends send the command to another folder than the one listed:
+    /// it must not run, and the item says how to clear it by hand.
+    @Test func bunCacheGuidesWhenItsLocationIsCustom() throws {
+        let f = try Fixture()
+        try f.file(".bun/install/cache/some-package-1.0.0.tgz", mb: 60)
+        var c = RecognizeContext(tree: f.scan(), activity: ActivityIndex(), home: f.root)
+        c.allowAnyPath = true
+        let item = try #require(DevCacheRecognizer.bun(c, installed: true, project: f.path("project"),
+                                                       cacheDir: { _ in f.path("elsewhere") })?.items[0])
+        #expect(item.action == .none)
+        #expect(item.tier == .guide)
+        #expect(!item.preselected)
+        #expect(item.reason.contains("elsewhere"))
+    }
+
+    /// bun links cached files into projects: deleting the cache frees only the part no
+    /// project still holds, and the item says so.
+    @Test func bunCacheEstimateExcludesSharedData() throws {
+        let f = try Fixture()
+        try f.file(".bun/install/cache/shared.bin", mb: 120)
+        try f.hardlink(".bun/install/cache/shared.bin", "project/node_modules/shared.bin")
+        var c = RecognizeContext(tree: f.scan(), activity: ActivityIndex(),
+                                 now: Date().addingTimeInterval(30 * 86400), home: f.root)
+        c.allowAnyPath = true
+        let item = try #require(DevCacheRecognizer.bun(c, installed: false)?.items[0])
+        #expect(item.estimate < item.bytes)
+        #expect(item.estimateIsLowerBound)
+        #expect(item.warnings.contains { $0.contains("共享") || $0.contains("shared") })
+    }
+
+    /// A folder the recognizer must not read (privacy): not listed at all.
+    @Test func bunCacheOffLimitsIsSkipped() throws {
+        let f = try Fixture()
+        try f.file(".bun/install/cache/some-package-1.0.0.tgz", mb: 60)
+        var c = RecognizeContext(tree: f.scan(), activity: ActivityIndex(), home: f.root)
+        c.allowAnyPath = true
+        c.offLimits = [f.path(".bun")]
+        #expect(DevCacheRecognizer.bun(c, installed: true, project: f.path("project"),
+                                      cacheDir: { _ in f.path(".bun/install/cache") }) == nil)
+    }
+
+    /// The command's target is the cache bun resolves from its environment: run from a
+    /// project of ours, with an isolated home, it clears exactly that one and leaves
+    /// another cache alone.
+    @Test func bunCacheRmClearsOnlyTheListedCache() throws {
+        guard let bun = Shell.which("bun") else { return }
+        let f = try Fixture()
+        try f.file("home/.bun/install/cache/some-package-1.0.0.tgz", mb: 1)
+        try f.file("other/.bun/install/cache/keep.tgz", mb: 1)
+        try f.file("project/package.json", text: #"{"private":true}"#)
+        // `env -u` drops whatever the test process inherited, so this is the default
+        // resolution: $HOME/.bun/install/cache, the folder the item lists.
+        let r = Shell.run(["/usr/bin/env", "-u", "BUN_INSTALL", "-u", "BUN_INSTALL_CACHE_DIR",
+                           "-u", "XDG_CACHE_HOME", "HOME=" + f.path("home"), bun, "pm", "cache", "rm"],
+                          cwd: f.path("project"))
+        #expect(r.ok, "bun pm cache rm: \(r.stderr)")
+        #expect(!FileManager.default.fileExists(atPath: f.path("home/.bun/install/cache/some-package-1.0.0.tgz")))
+        #expect(FileManager.default.fileExists(atPath: f.path("other/.bun/install/cache/keep.tgz")))
+    }
+
+    /// bun's own answer decides whether `cache rm` clears the folder the item lists: the
+    /// default resolves to it, $BUN_INSTALL resolves to another one.
+    @Test func bunCacheDirIsWhatBunSays() throws {
+        guard Shell.which("bun") != nil else { return }
+        let f = try Fixture()
+        try f.file("home/.bun/install/cache/p.tgz", mb: 1)
+        try f.file("project/package.json", text: #"{"private":true}"#)
+        let listed = f.path("home/.bun/install/cache")
+        let resolved = try #require(DevCacheRecognizer.bunCacheDir(project: f.path("project"),
+                                                                   env: ["BUN_INSTALL": f.path("home/.bun")]))
+        #expect(DevCacheRecognizer.samePath(resolved, listed))
+        let custom = try #require(DevCacheRecognizer.bunCacheDir(project: f.path("project"),
+                                                                 env: ["BUN_INSTALL": f.path("custom")]))
+        #expect(!DevCacheRecognizer.samePath(custom, listed))
+    }
+
+    /// $BUN_INSTALL sends the same command to `$BUN_INSTALL/install/cache`, not the folder
+    /// the item lists: that is why the recognizer guides instead of running it there.
+    @Test func bunCacheRmFollowsCustomBunInstall() throws {
+        guard let bun = Shell.which("bun") else { return }
+        let f = try Fixture()
+        try f.file("home/.bun/install/cache/listed.tgz", mb: 1)
+        try f.file("custom/install/cache/elsewhere.tgz", mb: 1)
+        try f.file("project/package.json", text: #"{"private":true}"#)
+        let r = Shell.run([bun, "pm", "cache", "rm"], cwd: f.path("project"),
+                          env: ["BUN_INSTALL": f.path("custom")])
+        #expect(r.ok, "bun pm cache rm: \(r.stderr)")
+        #expect(!FileManager.default.fileExists(atPath: f.path("custom/install/cache/elsewhere.tgz")))
+        #expect(FileManager.default.fileExists(atPath: f.path("home/.bun/install/cache/listed.tgz")))
     }
 
     @Test func frameSequenceVersusCameraBurst() throws {

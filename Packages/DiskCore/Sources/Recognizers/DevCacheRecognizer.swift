@@ -62,21 +62,95 @@ public enum DevCacheRecognizer {
 
     // MARK: bun
 
-    /// bun's own `pm cache rm` only runs inside a project: it looks for a package.json
-    /// above the working directory, and an app opened from Finder works in "/", so it
-    /// exits 1 without clearing anything (`-g` and `--cwd` only move the search to
-    /// `~/.bun/install/global`). The folder holds downloaded tarballs and the packages
-    /// bunx unpacked, which is what `cache rm` deletes, so it is deleted directly.
-    static func bun(_ ctx: RecognizeContext) -> Thing? {
+    /// A project of ours for `bun pm cache rm` to run in: bun's `pm` commands look for a
+    /// package.json above the working directory, and an app opened from Finder works in
+    /// "/", where there is none (`-g` and `--cwd` only move the search to
+    /// `~/.bun/install/global`). It lives in the app's own folder, so nothing of the
+    /// person's decides which cache the command clears.
+    static func bunProject() -> String? {
+        let dir = AppPaths.supportDir.appendingPathComponent("bun", isDirectory: true)
+        let manifest = dir.appendingPathComponent("package.json")
+        try? AppPaths.ensure()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: manifest.path) {
+            try? #"{"private":true}"#.write(to: manifest, atomically: true, encoding: .utf8)
+        }
+        return FileManager.default.fileExists(atPath: dir.path) ? dir.path : nil
+    }
+
+    /// Where bun says its cache is, asked from our project. `bun pm cache rm` clears this
+    /// folder, whatever $BUN_INSTALL, $XDG_CACHE_HOME or a bunfig.toml say, so it also
+    /// answers whether the command would clear the folder the item lists.
+    static func bunCacheDir(project: String, env: [String: String] = [:]) -> String? {
+        let r = Shell.run(["bun", "pm", "cache"], cwd: project, timeout: 10, env: env)
+        guard r.ok else { return nil }
+        let p = r.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return p.isEmpty ? nil : p
+    }
+
+    static func samePath(_ a: String, _ b: String) -> Bool {
+        URL(fileURLWithPath: a).resolvingSymlinksInPath().path == URL(fileURLWithPath: b).resolvingSymlinksInPath().path
+    }
+
+    static func bun(_ ctx: RecognizeContext, installed: Bool? = nil, project: String? = nil,
+                    cacheDir: (String) -> String? = { DevCacheRecognizer.bunCacheDir(project: $0) }) -> Thing? {
         let path = ctx.home + "/.bun/install/cache"
-        let bytes = ctx.size(path)
+        guard !ctx.isOffLimits(path) else { return nil }
+        guard let node = ctx.tree.find(path) else { return nil }
+        let bytes = ctx.tree.size(node)
         guard bytes >= 50_000_000 else { return nil }
-        return Thing(id: "cache:bun", kind: .devCache, title: "bun cache", path: path, bytes: bytes, items: [
-            ReclaimItem(id: "cache:bun", label: "bun cache", path: path, bytes: bytes, tier: .regenerable,
-                        action: .delete(path: path),
-                        reason: L("bun 下载缓存，需要时会重新下载", "bun download cache, re-downloaded on demand"),
-                        preselected: true),
-        ])
+        let hasBun = installed ?? (Shell.which("bun") != nil)
+        let restore = L("下次 bun install 时会重新下载", "downloaded again on the next bun install")
+        let projectDir = hasBun ? (project ?? bunProject()) : nil
+        let resolved = projectDir.flatMap(cacheDir)
+        var warnings: [String] = []
+        var item: ReclaimItem
+        if !hasBun {
+            // Nothing to run: the folder is what `cache rm` would have deleted.
+            item = ReclaimItem(id: "cache:bun", label: L("bun 下载缓存", "bun download cache"), path: path,
+                               bytes: bytes, tier: .regenerable, action: .delete(path: path), restore: restore,
+                               reason: L("bun 没装，缓存是下载过的包，需要时会重新下载",
+                                         "bun is not installed; the folders hold downloaded packages, fetched again when needed"),
+                               preselected: false)
+        } else if let projectDir, let resolved, samePath(resolved, path) {
+            // Run from a project of ours, so bun never looks at one of the person's; and
+            // only when bun resolves the same folder this item lists.
+            item = ReclaimItem(id: "cache:bun", label: L("bun 下载缓存", "bun download cache"), path: path,
+                               bytes: bytes, tier: .regenerable,
+                               action: .command(argv: ["bun", "pm", "cache", "rm"], cwd: projectDir), restore: restore,
+                               reason: L("bun 下载缓存，需要时会重新下载", "bun download cache, re-downloaded on demand"),
+                               preselected: false)
+        } else {
+            // bun's cache resolves somewhere else: the command would clear that folder, not
+            // the one listed, so only say how to do it by hand.
+            let where_ = resolved.map(Fmt.home) ?? L("别的位置", "somewhere else")
+            item = ReclaimItem(id: "cache:bun", label: L("bun 下载缓存", "bun download cache"), path: path,
+                               bytes: bytes, tier: .guide, action: .none,
+                               reason: L("bun 说缓存现在在 \(where_)，不是这里，App 不去猜。确认后在一个项目目录里运行 `bun pm cache rm`",
+                                         "bun says its cache is \(where_), not here, and the app won't guess. Run `bun pm cache rm` inside a project")
+                               + L("；bun 没装的话，直接删掉这个文件夹也可以", "; with bun gone, deleting this folder is fine too"),
+                               preselected: false)
+        }
+        // Hard links to projects (bun links cached files into node_modules) free data only
+        // when those go too: count what is not shared as the estimate.
+        let own = ctx.tree.node(node).pointee.t_alloc
+        if own < bytes {
+            item.estimate = own
+            item.estimateIsLowerBound = true
+            warnings.append(L("其中 \(Fmt.bytes(bytes - own)) 与项目里的文件共享（硬链接或克隆），单清缓存腾不出来",
+                              "\(Fmt.bytes(bytes - own)) is shared with files in projects (hard links or clones) and stays until those go too"))
+        }
+        // Fresh or busy caches are what people are still using; the executor skips a
+        // running user, but the item must not be in the default plan either.
+        if let changed = Guards.recentChange(path, now: ctx.now) {
+            warnings.append(Guards.recentNote(changed: changed))
+        } else if let programs = Guards.runningPrograms(), let p = Guards.program(using: path, in: programs) {
+            warnings.append(L("\(p.summary)（PID \(p.pid)）正在用", "in use by \(p.summary) (PID \(p.pid))"))
+        } else {
+            item.preselected = true
+        }
+        item.warnings = warnings
+        return Thing(id: "cache:bun", kind: .devCache, title: "bun cache", path: path, bytes: bytes, items: [item])
     }
 
     // MARK: uv
