@@ -183,7 +183,7 @@ TTS 配音和静帧。
 | npm | `npm cache clean --force` | 是 |
 | npx | 删除 npx 装在 `~/.npm/_npx` 里的包，每个包一行；正在运行的程序在用的（MCP 服务器常这样运行）和 7 天内装的不动 | 是 |
 | pnpm store | `pnpm store prune`（没有项目在用的包） | 是 |
-| bun | `bun pm cache rm` | 是 |
+| bun | `bun pm cache rm`（在 App 自己的项目里运行）；bun 没装时删除 `~/.bun/install/cache`；缓存位置被改到别处时只给指引 | 7 天内没变过、且没有程序在用时 |
 | Yarn | `yarn cache clean` | 是 |
 | pip | 删除 `~/Library/Caches/pip` | 是 |
 | Homebrew | `brew cleanup --prune=all -s` | 是 |
@@ -194,7 +194,7 @@ TTS 配音和静帧。
 | | 删除半年没启动过的模拟器 | 否（里面装的 App 和数据会丢） |
 | Docker / OrbStack | `docker builder prune -f`、`docker image prune -f`（悬空镜像） | 是 |
 
-工具没装的话，就直接删它的文件夹。小于 50 MB 的缓存不列出。
+工具没装的话，就直接删它的文件夹。bun 的 `pm cache rm` 只能在项目目录里运行，所以 App 自带一个小项目给它用，并且先问 `bun pm cache`：只有命令要清的目录和列出的目录一致时才运行。`$BUN_INSTALL`、`$XDG_CACHE_HOME` 或 bunfig 的 `cache` 把缓存指到别处时，这一项只告诉你怎么手动清。小于 50 MB 的缓存不列出。
 
 **为什么 uv 有三个选项。** uv 往每个 `.venv` 里装包时，用的是从缓存 APFS 克隆出来的文件。
 克隆文件共享数据块，所以单清缓存，只能腾出没有 `.venv` 在用的那部分；单删 `.venv`，

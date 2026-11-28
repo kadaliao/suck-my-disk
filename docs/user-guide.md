@@ -216,7 +216,7 @@ often hold paid text-to-speech audio and stills next to the frames.
 | npm | `npm cache clean --force` | yes |
 | npx | delete the packages npx installed in `~/.npm/_npx`, one row per package; skips any a running program uses (MCP servers often run this way) and any installed in the last 7 days | yes |
 | pnpm store | `pnpm store prune` (packages no project uses) | yes |
-| bun | `bun pm cache rm` | yes |
+| bun | `bun pm cache rm` (from a project of the app's own), or delete `~/.bun/install/cache` when bun is not installed; guidance only when the cache moved elsewhere | when it hasn't changed in 7 days and no program is using it |
 | Yarn | `yarn cache clean` | yes |
 | pip | delete `~/Library/Caches/pip` | yes |
 | Homebrew | `brew cleanup --prune=all -s` | yes |
@@ -227,8 +227,12 @@ often hold paid text-to-speech audio and stills next to the frames.
 | | delete simulators not booted for 6 months | no (their apps and data are lost) |
 | Docker / OrbStack | `docker builder prune -f`, `docker image prune -f` (dangling images) | yes |
 
-When the tool is not installed, its folder is deleted instead. Caches under
-50 MB are not listed.
+When the tool is not installed, its folder is deleted instead. bun's `pm cache
+rm` only runs inside a project, so the app keeps one of its own and asks `bun
+pm cache` first: the command runs only when it clears the folder the item
+lists. With `$BUN_INSTALL`, `$XDG_CACHE_HOME` or a bunfig `cache` pointing
+elsewhere, the item says how to clear it by hand. Caches under 50 MB are not
+listed.
 
 **Why uv has three options.** uv installs packages into each `.venv` as APFS
 clones of its cache. Clones share data blocks, so clearing the cache alone
